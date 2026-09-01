@@ -1,0 +1,651 @@
+'use client';
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { auth } from '@/lib/firebase';
+import { JournalEntry, ChatMessage, EntryMood } from '@/types/journal';
+import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
+import { getCurrentTimestamp, generateUniqueId } from '@/lib/utils';
+import {
+  Sparkles, Plus, Trash2, Download, Send, Search, CheckCircle2,
+  AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
+} from 'lucide-react';
+import Markdown from 'react-markdown';
+import { useLocation } from '@/hooks/useLocation';
+import { LocationTag } from '@/components/LocationTag';
+import { NotificationToggle } from '@/components/NotificationSettings';
+
+const MOODS: { value: EntryMood; label: string; icon: string }[] = [
+  { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
+  { value: 'grateful', label: 'Grateful', icon: '🙏' },
+  { value: 'productive', label: 'Productive', icon: '⚡' },
+  { value: 'inspired', label: 'Inspired', icon: '✨' },
+  { value: 'stressed', label: 'Stressed', icon: '🌧️' },
+  { value: 'curious', label: 'Curious', icon: '🔍' },
+  { value: 'neutral', label: 'Neutral', icon: '🌱' },
+];
+
+const SUGGESTED_STARTERS = [
+  'What am I avoiding saying out loud about this situation?',
+  'Point out where my reasoning or narrative doesn’t quite add up.',
+  'Here is what happened — give it to me straight without softening.',
+  'What would I do if the excuse I just gave was not an option?',
+];
+
+const QUICK_ACTIONS: { id: string; label: string; mode: 'reflect' | 'summarize' | 'action_items' | 'reframe'; prompt: string; icon: React.ElementType }[] = [
+  { id: 'action-deep-reflect-btn', label: 'Challenge Assumption', mode: 'reflect', prompt: 'Look at what I just wrote. What unexamined assumption or elephant in the room am I ignoring?', icon: Lightbulb },
+  { id: 'action-summarize-btn', label: 'Cut to the Point', mode: 'summarize', prompt: 'Strip out all the rationalizations and state the raw core conflict and 1 sharp question.', icon: FileText },
+  { id: 'action-next-steps-btn', label: 'Pragmatic Action', mode: 'action_items', prompt: 'Give me 1-2 realistic, non-negotiable practical steps and 1 sharp question on what is stopping me.', icon: ListOrdered },
+  { id: 'action-reframe-btn', label: 'Call Out Contradiction', mode: 'reframe', prompt: 'Where am I contradicting myself or making excuses in what I just wrote?', icon: Compass },
+];
+
+export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolean; onCloseSidebar: () => void }) {
+  const { user } = useAuth();
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+
+  const { locality, loading: locationLoading, fetchCurrentLocation } = useLocation();
+  const [isNotificationEnabled, setIsNotificationEnabled] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMoodFilter, setSelectedMoodFilter] = useState<string>('all');
+
+  const [promptInput, setPromptInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    return subscribeToUserEntries(
+      user.uid,
+      (userEntries) => {
+        setEntries(userEntries);
+        setSelectedEntryId((prev) => (prev && userEntries.some((e) => e.id === prev) ? prev : userEntries[0]?.id || null));
+      },
+      (err) => {
+        setErrorMessage(`Firestore synchronization error: ${err.message}`);
+        setSaveStatus('error');
+      }
+    );
+  }, [user]);
+
+  const activeEntry = useMemo(() => entries.find((e) => e.id === selectedEntryId) || null, [entries, selectedEntryId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeEntry?.messages?.length, isGenerating]);
+
+  const handleCreateNewEntry = async () => {
+    if (!user) return;
+    const timestamp = getCurrentTimestamp();
+    const newId = generateUniqueId('entry');
+    const formattedDate = new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const newEntry: JournalEntry = {
+      id: newId,
+      userId: user.uid,
+      title: `Entry ${formattedDate}`,
+      initialThought: '',
+      mood: 'thoughtful',
+      tags: [],
+      messages: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    setSaveStatus('saving');
+    try {
+      await saveJournalEntry(user.uid, newEntry);
+      setSelectedEntryId(newId);
+      setSaveStatus('saved');
+      setErrorMessage(null);
+      if (typeof window !== 'undefined' && window.innerWidth < 768) onCloseSidebar();
+    } catch (err: unknown) {
+      setErrorMessage(`Failed to initialize reflection in Firestore: ${err instanceof Error ? err.message : 'Error'}`);
+      setSaveStatus('error');
+    }
+  };
+
+  const handleUpdateMetadata = async (updates: Partial<JournalEntry>) => {
+    if (!user || !activeEntry) return;
+    const updated: JournalEntry = { ...activeEntry, ...updates, updatedAt: getCurrentTimestamp() };
+    setSaveStatus('saving');
+    try {
+      await saveJournalEntry(user.uid, updated);
+      setSaveStatus('saved');
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage('Failed to sync metadata to Firestore.');
+      setSaveStatus('error');
+    }
+  };
+
+  const handleSendPrompt = async (
+    customPrompt?: string,
+    mode: 'general' | 'reflect' | 'summarize' | 'action_items' | 'reframe' = 'reflect'
+  ) => {
+    const textToSend = (customPrompt || promptInput).trim();
+    if (!textToSend || !user || !activeEntry || isGenerating) return;
+
+    const userTimestamp = getCurrentTimestamp();
+    const userMessage: ChatMessage = {
+      id: generateUniqueId('msg_user'),
+      role: 'user',
+      content: textToSend,
+      timestamp: userTimestamp,
+      mode,
+    };
+
+    const updatedMessages = [...(activeEntry.messages || []), userMessage];
+    const updatedEntry: JournalEntry = {
+      ...activeEntry,
+      initialThought: activeEntry.initialThought || textToSend,
+      messages: updatedMessages,
+      updatedAt: userTimestamp,
+    };
+
+    setPromptInput('');
+    setIsGenerating(true);
+    setSaveStatus('saving');
+
+    try {
+      await saveJournalEntry(user.uid, updatedEntry);
+
+      const response = await fetch('/api/gemini/reflect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: textToSend,
+          mode,
+          title: activeEntry.title,
+          mood: activeEntry.mood,
+          locality: locality || undefined,
+          history: updatedMessages,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const aiTimestamp = getCurrentTimestamp();
+      const assistantMessage: ChatMessage = {
+        id: generateUniqueId('msg_ai'),
+        role: 'assistant',
+        content: data.text || 'Unable to generate reflection.',
+        timestamp: aiTimestamp,
+        mode,
+      };
+
+      const finalEntry: JournalEntry = {
+        ...updatedEntry,
+        messages: [...updatedMessages, assistantMessage],
+        summary: mode === 'summarize' ? data.text : updatedEntry.summary,
+        updatedAt: aiTimestamp,
+      };
+
+      await saveJournalEntry(user.uid, finalEntry);
+
+      if (mode === 'summarize' && isNotificationEnabled) {
+        const getTokenPromise = auth.currentUser
+          ? auth.currentUser.getIdToken()
+          : Promise.resolve('guest_token');
+
+        getTokenPromise
+          .then((token) => {
+            fetch('/api/notifications/dispatch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                summaryData: { title: activeEntry.title, mood: activeEntry.mood, summary: data.text, keyTakeaways: [data.text.slice(0, 150)] },
+                provider: 'all',
+              }),
+            }).catch(() => {});
+          })
+          .catch(() => {});
+      }
+
+      setSaveStatus('saved');
+      setErrorMessage(null);
+    } catch (err: unknown) {
+      setErrorMessage(`Reflection could not be saved: ${err instanceof Error ? err.message : 'Error communicating with Gemini'}`);
+      setSaveStatus('error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    if (!user) return;
+    try {
+      await deleteJournalEntry(user.uid, entryId);
+      setDeleteConfirmId(null);
+      if (selectedEntryId === entryId) {
+        const remaining = entries.filter((e) => e.id !== entryId);
+        setSelectedEntryId(remaining[0]?.id || null);
+      }
+    } catch {
+      setErrorMessage('Failed to delete reflection from Firestore.');
+    }
+  };
+
+  const handleExportMarkdown = () => {
+    if (!activeEntry) return;
+    let md = `# ${activeEntry.title}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}\n\n## Journal Dialogue\n\n`;
+    activeEntry.messages.forEach((msg) => {
+      md += msg.role === 'user'
+        ? `### 👤 Entry Note (${new Date(msg.timestamp).toLocaleTimeString()})\n${msg.content}\n\n`
+        : `### ✍️ WriteFrankly [${msg.mode || 'Inquiry'}]\n${msg.content}\n\n`;
+    });
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeEntry.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageId(id);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  };
+
+  const filteredEntries = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return entries.filter((entry) => {
+      const matchesSearch = !q || entry.title.toLowerCase().includes(q) ||
+        entry.initialThought.toLowerCase().includes(q) ||
+        entry.messages.some((m) => m.content.toLowerCase().includes(q));
+      return matchesSearch && (selectedMoodFilter === 'all' || entry.mood === selectedMoodFilter);
+    });
+  }, [entries, searchQuery, selectedMoodFilter]);
+
+  return (
+    <div className="flex-1 flex overflow-hidden bg-[#fafafa] relative">
+      {/* Sidebar */}
+      <aside
+        id="history-sidebar"
+        className={`fixed md:static inset-y-0 left-0 z-20 w-80 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-transform duration-200 ease-out md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="p-3.5 border-b border-zinc-200/50 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Compass className="w-4 h-4 text-zinc-700" />
+            <h2 className="font-semibold text-zinc-900 text-xs tracking-tight">Reflections</h2>
+          </div>
+          <button
+            id="sidebar-new-entry-btn"
+            onClick={handleCreateNewEntry}
+            className="p-1 rounded-lg bg-zinc-100 hover:bg-zinc-200/80 text-zinc-800 transition-colors border border-zinc-200/60"
+            title="Create New Reflection"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="p-3 border-b border-zinc-200/50">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
+            <input
+              id="sidebar-search-input"
+              type="text"
+              placeholder="Search reflections..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-zinc-200/50 focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-hidden transition-all duration-150"
+            />
+          </div>
+
+          <div className="flex items-center space-x-1 mt-2.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+            {[{ value: 'all', label: `All (${entries.length})`, icon: '' }, ...MOODS].map((m) => {
+              const active = selectedMoodFilter === m.value;
+              return (
+                <button
+                  key={m.value}
+                  id={`filter-mood-${m.value}`}
+                  onClick={() => setSelectedMoodFilter(m.value)}
+                  className={`px-2.5 py-0.5 rounded-full border transition-all duration-150 shrink-0 ${
+                    active ? 'bg-zinc-900 text-zinc-50 border-zinc-900 font-medium' : 'bg-white/80 text-zinc-600 border-zinc-200/80 hover:bg-white'
+                  }`}
+                >
+                  {m.icon && <span className="mr-0.5">{m.icon}</span>}{m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {filteredEntries.length === 0 ? (
+            <div className="text-center py-12 px-4 text-zinc-400">
+              <Compass className="w-7 h-7 mx-auto text-zinc-300 mb-2 stroke-1" />
+              <p className="text-xs font-medium text-zinc-600">No reflections found</p>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                {searchQuery ? 'Try a different search term' : 'Create your first reflection'}
+              </p>
+              {!searchQuery && (
+                <button
+                  onClick={handleCreateNewEntry}
+                  className="mt-3 px-3 py-1 rounded-full bg-zinc-900 text-zinc-50 text-xs font-medium hover:bg-zinc-800 transition-colors inline-flex items-center space-x-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Start Reflecting</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            filteredEntries.map((entry) => {
+              const isSelected = entry.id === selectedEntryId;
+              const moodInfo = MOODS.find((m) => m.value === entry.mood) || MOODS[0];
+              return (
+                <div
+                  key={entry.id}
+                  id={`entry-item-${entry.id}`}
+                  onClick={() => {
+                    setSelectedEntryId(entry.id);
+                    if (typeof window !== 'undefined' && window.innerWidth < 768) onCloseSidebar();
+                  }}
+                  className={`p-2.5 rounded-xl border transition-all duration-150 cursor-pointer text-left ${
+                    isSelected ? 'bg-white border-zinc-300 shadow-2xs' : 'bg-transparent hover:bg-white/60 border-transparent hover:border-zinc-200/60'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <h3 className={`text-xs truncate pr-2 ${isSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-800 font-medium'}`}>
+                      {entry.title || 'Untitled Reflection'}
+                    </h3>
+                    <span className="text-[10px] text-zinc-400 shrink-0">
+                      {new Date(entry.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 truncate mt-1">
+                    {entry.initialThought || entry.messages[0]?.content || 'Empty reflection...'}
+                  </p>
+                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-zinc-100">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-800 border-zinc-200/80">
+                      {moodInfo.icon} {moodInfo.label}
+                    </span>
+                    <span className="text-[10px] text-zinc-400">
+                      {entry.messages.length} {entry.messages.length === 1 ? 'turn' : 'turns'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="p-2 border-t border-zinc-200/50 md:hidden">
+          <button onClick={onCloseSidebar} className="w-full py-1.5 rounded-xl bg-zinc-100 text-zinc-700 text-xs font-medium">
+            Close History
+          </button>
+        </div>
+      </aside>
+
+      {sidebarOpen && <div onClick={onCloseSidebar} className="fixed inset-0 bg-black/20 backdrop-blur-xs z-10 md:hidden" />}
+
+      {/* Main Workspace */}
+      <main className="flex-1 flex flex-col overflow-hidden bg-white">
+        {activeEntry ? (
+          <>
+            <div className="px-4 sm:px-6 py-3 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+              <div className="flex items-center space-x-2.5 flex-1 min-w-0">
+                <input
+                  id="entry-title-input"
+                  type="text"
+                  value={activeEntry.title}
+                  onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
+                  placeholder="Reflection Title..."
+                  className="font-semibold text-sm sm:text-base text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors w-full max-w-md truncate"
+                />
+                <select
+                  id="entry-mood-select"
+                  value={activeEntry.mood}
+                  onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
+                  className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0"
+                >
+                  {MOODS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
+                  ))}
+                </select>
+                <LocationTag locality={locality} loading={locationLoading} onAttach={fetchCurrentLocation} />
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <NotificationToggle enabled={isNotificationEnabled} onToggle={setIsNotificationEnabled} />
+
+                <div
+                  id="save-status-indicator"
+                  className={`text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center space-x-1 ${
+                    saveStatus === 'saved' ? 'text-zinc-600 bg-zinc-100' : saveStatus === 'saving' ? 'text-zinc-700 bg-zinc-100 animate-pulse' : 'text-rose-700 bg-rose-50'
+                  }`}
+                >
+                  {saveStatus === 'saved' && <CheckCircle2 className="w-3 h-3 text-zinc-700" />}
+                  {saveStatus === 'saving' && <RefreshCw className="w-3 h-3 text-zinc-600 animate-spin" />}
+                  {saveStatus === 'error' && <AlertCircle className="w-3 h-3 text-rose-600" />}
+                  <span>{saveStatus === 'saved' ? 'Saved to Firestore' : saveStatus === 'saving' ? 'Syncing...' : 'Save Error'}</span>
+                </div>
+
+                <button
+                  id="export-entry-btn"
+                  onClick={handleExportMarkdown}
+                  title="Export reflection as Markdown"
+                  className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+
+                {deleteConfirmId === activeEntry.id ? (
+                  <div className="flex items-center space-x-1">
+                    <button
+                      id="confirm-delete-btn"
+                      onClick={() => handleDeleteEntry(activeEntry.id)}
+                      className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    id="delete-entry-btn"
+                    onClick={() => setDeleteConfirmId(activeEntry.id)}
+                    title="Delete reflection"
+                    className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {errorMessage && (
+              <div id="workspace-error-banner" className="px-4 py-2 bg-zinc-100 border-b border-zinc-200 text-zinc-800 text-xs flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-zinc-700 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+                <button
+                  id="retry-save-btn"
+                  onClick={() => handleUpdateMetadata({})}
+                  className="px-2 py-0.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-md font-medium text-[11px]"
+                >
+                  Retry Save
+                </button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6 bg-[#fafafa]">
+              {activeEntry.messages.length === 0 ? (
+                <div className="max-w-xl mx-auto text-center py-10">
+                  <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-3.5">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-base font-semibold text-zinc-900">Say what you actually think</h3>
+                  <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto leading-relaxed">
+                    No performance, no filtering, no fear of consequence. Write what is real.
+                  </p>
+
+                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                    {SUGGESTED_STARTERS.map((starter, idx) => (
+                      <button
+                        key={idx}
+                        id={`starter-prompt-btn-${idx}`}
+                        onClick={() => handleSendPrompt(starter, 'reflect')}
+                        className="p-3 rounded-2xl bg-white border border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs transition-all duration-150 text-left shadow-2xs flex items-start space-x-2"
+                      >
+                        <Lightbulb className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5" />
+                        <span className="leading-snug">{starter}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="max-w-2xl mx-auto space-y-5">
+                  {activeEntry.messages.map((msg) => (
+                    <div key={msg.id} id={`chat-message-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center space-x-2 mb-1 px-1">
+                        <span className="text-[10px] font-medium text-zinc-400">{msg.role === 'user' ? 'You' : 'WriteFrankly'}</span>
+                        {msg.mode && msg.mode !== 'general' && (
+                          <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200/60 capitalize">
+                            {msg.mode.replace('_', ' ')}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-zinc-400">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <div
+                        className={`relative group rounded-2xl p-4 text-sm transition-all duration-150 max-w-[92%] sm:max-w-[85%] ${
+                          msg.role === 'user' ? 'bg-zinc-900 text-zinc-50 shadow-2xs rounded-tr-xs' : 'bg-white border border-zinc-200/80 text-zinc-800 shadow-2xs rounded-tl-xs'
+                        }`}
+                      >
+                        {msg.role === 'user' ? (
+                          <p className="whitespace-pre-wrap leading-relaxed text-[13px]">{msg.content}</p>
+                        ) : (
+                          <div className="prose prose-zinc prose-sm max-w-none text-zinc-800 leading-relaxed space-y-2 text-[13px]">
+                            <Markdown>{msg.content}</Markdown>
+                          </div>
+                        )}
+
+                        <button
+                          id={`copy-msg-btn-${msg.id}`}
+                          onClick={() => handleCopyMessage(msg.id, msg.content)}
+                          title="Copy text"
+                          className={`absolute top-2.5 right-2.5 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${
+                            msg.role === 'user' ? 'text-zinc-400 hover:text-white bg-zinc-800' : 'text-zinc-400 hover:text-zinc-800 bg-zinc-100'
+                          }`}
+                        >
+                          {copiedMessageId === msg.id ? <Check className="w-3 h-3 text-zinc-300" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {isGenerating && (
+                    <div className="flex items-start space-x-2 max-w-[85%]">
+                      <div className="p-3.5 rounded-2xl bg-white border border-zinc-200/80 text-zinc-600 rounded-tl-xs flex items-center space-x-2.5 shadow-2xs">
+                        <RefreshCw className="w-3.5 h-3.5 text-zinc-800 animate-spin" />
+                        <span className="text-xs font-medium text-zinc-700">Thinking frankly...</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+
+            {/* Actions Bar */}
+            <div className="px-4 sm:px-6 pt-2 pb-1.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/50 shrink-0">
+              <div className="max-w-2xl mx-auto flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
+                <span className="text-[10px] font-medium text-zinc-400 shrink-0 mr-1">Actions:</span>
+                {QUICK_ACTIONS.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.id}
+                      id={action.id}
+                      onClick={() => handleSendPrompt(action.prompt, action.mode)}
+                      disabled={isGenerating}
+                      className="px-2.5 py-1 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200/60 transition-colors shrink-0 flex items-center space-x-1 disabled:opacity-40 text-[11px]"
+                    >
+                      <Icon className="w-3 h-3 text-zinc-600" />
+                      <span>{action.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Input Composer */}
+            <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
+              <div className="max-w-2xl mx-auto relative">
+                <textarea
+                  id="reflection-input-textarea"
+                  rows={2}
+                  value={promptInput}
+                  onChange={(e) => setPromptInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendPrompt();
+                    }
+                  }}
+                  placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
+                  className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
+                />
+
+                <button
+                  id="send-reflection-btn"
+                  onClick={() => handleSendPrompt()}
+                  disabled={!promptInput.trim() || isGenerating}
+                  aria-label="Send reflection to Gemini"
+                  className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs"
+                >
+                  {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center p-6 text-center bg-[#fafafa]">
+            <div className="max-w-sm">
+              <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center mx-auto mb-3.5 border border-zinc-200/70">
+                <Compass className="w-5 h-5" />
+              </div>
+              <h2 className="text-base font-semibold text-zinc-900">Welcome to WriteFrankly</h2>
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                Select an entry from your journal history or start a new entry.
+              </p>
+              <button
+                id="empty-state-new-entry-btn"
+                onClick={handleCreateNewEntry}
+                className="mt-5 inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium shadow-2xs transition-all duration-200 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create New Entry</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+

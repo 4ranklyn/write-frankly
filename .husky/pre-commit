@@ -1,0 +1,13 @@
+#!/bin/sh
+echo "==> Running Security Audit & Test Suite..."
+
+# 1. Block staged Gemini/Google Cloud keys
+if git diff --cached | grep -E "AIzaSy[A-Za-z0-9_-]{33}"; then
+  echo "❌ ERROR: Hardcoded Google API key detected in commit diff!"
+  exit 1
+fi
+
+# 2. Run TDD unit tests
+npm test || exit 1
+
+echo "✅ Security checks passed. Ready for deployment."

@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "workspace": "WriteFrankly",
+  "rules": [
+    {
+      "id": "security-zero-trust",
+      "name": "Zero-Trust Security & Key Protection",
+      "description": "Never expose Gemini or Google Maps API keys to the client; isolate Firestore tenant paths and verify auth tokens.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Never emit client-side Gemini or Google Maps API keys.",
+        "All Firestore operations must use /users/{uid}/journals/{id} paths.",
+        "Every API route must execute adminAuth.verifyIdToken(token) before downstream execution."
+      ],
+      "skillRef": "skills/security-constitution/SKILL.md"
+    },
+    {
+      "id": "apple-hig-design",
+      "name": "Apple Human Interface Guidelines Design System",
+      "description": "Ensure clean visual hierarchy, legible typography, fluid motion, and dark mode compliance.",
+      "level": "warning",
+      "trigger": "model_decision",
+      "directives": [
+        "Follow Apple HIG principles: Clarity, Deference, and Depth.",
+        "Use rounded continuous corner radii, subtle blur materials, and accessible contrast ratios.",
+        "Incorporate spring physics animations for interaction states."
+      ],
+      "skillRef": "skills/apple-hig/SKILL.md"
+    },
+    {
+      "id": "maps-api-proxy",
+      "name": "Maps API Proxy Directives",
+      "description": "Ensure all Google Maps API queries are proxied via backend routes with input validation and rate limiting.",
+      "level": "error",
+      "trigger": "model_decision",
+      "directives": [
+        "Proxy all Maps API calls through backend route handlers.",
+        "Authenticate caller tokens and sanitize all coordinate/query inputs."
+      ],
+      "skillRef": "skills/maps-integration/SKILL.md"
+    },
+    {
+      "id": "pre-commit-tdd-enforcement",
+      "name": "Pre-Commit Secret Scanning & TDD Enforcement",
+      "description": "Block hardcoded secrets and enforce passing tests prior to git commits.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Block hardcoded API keys and credentials in staged commits.",
+        "Execute automated test suites (security.test.ts and sanitizer.test.ts) before git commits."
+      ]
+    }
+  ]
+}

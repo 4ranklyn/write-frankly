@@ -1,0 +1,10 @@
+{
+  "name": "WriteFrankly",
+  "description": "A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
