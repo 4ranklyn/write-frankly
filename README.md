@@ -6,59 +6,104 @@ WriteFrankly is a private, unvarnished journaling companion for thinking out lou
 
 ## 🛡️ Architecture & Security Model
 
-- **Authentication**: Firebase Authentication with Federated Google Sign-In (no passwords stored in application state).
-- **Database Isolation**: Cloud Firestore with strict owner-bound security rules (`request.auth.uid == userId`), preventing cross-user data leakage.
-- **AI Processing Engine**: Gemini 3.7 Flash via secure server-side Next.js API routes with automated fallback ladder (`gemini-3.6-flash` &rarr; `gemini-3.1-flash-lite` &rarr; `gemini-flash-latest` &rarr; `gemini-3.7-flash`).
-- **Zero-Crash Undefined Stripping**: Strict sanitization of all database payloads prior to Firestore ingestion.
+WriteFrankly is built around a **3-Tier Privacy & Security Architecture**:
+
+1. **Backend Transit & Ephemeral Processing (Data Masking)**:
+   - The Cloud Run service acts strictly as a stateless transit and sanitization layer.
+   - Text is sanitized in RAM (redacting emails, phone numbers, SSNs, credit cards, and bearer tokens) before reaching Google's AI servers.
+   - Strictly metadata-only console logging (`[INFO] Processing journal AI analysis | Mode: ... | MessagesCount: ...`) — never logging user journal payloads or text.
+2. **Secret Manager Lockdown**:
+   - `GEMINI_API_KEY` is never stored in `.env` files or plaintext variables; mounted directly from Google Cloud Secret Manager at container runtime.
+3. **Client-Side Web Crypto Encryption at Rest**:
+   - Journal text can be encrypted directly in the browser via standard Web Crypto API (`crypto.subtle` AES-GCM 256-bit with PBKDF2 key derivation) before persisting to Firestore.
+   - Owner-bound Firestore security rules (`request.auth.uid == userId`) guarantee multi-tenant document isolation.
 
 ---
 
-## 📋 Prerequisites & Local Configuration
+## 1. Backend Code: Data Masking & Ephemeral Processing
 
-1. **Node.js**: 20+ installed.
-2. **Google Cloud SDK (`gcloud` CLI)**: Installed and authenticated (`gcloud auth login`).
-3. **Firebase Tools CLI**: `npm install -g firebase-tools`.
+The backend routes (`/app/api/gemini/reflect/route.ts`) implement in-RAM PII masking and ephemeral memory handling:
 
-### Environment Variables
+```typescript
+import { scrubPII } from '@/lib/sanitizer';
 
-Configure your `.env.local` or environment variables:
+// 1. Mask sensitive data in RAM before AI processing
+const safeText = scrubPII(journalEntry);
 
-```bash
-# Gemini API Key (accessed server-side only)
-GEMINI_API_KEY="AIzaSy..."
+// 2. Log metadata ONLY. Never the payload
+console.log(`[INFO] Processing journal request | User: ${userId} | Mode: ${mode}`);
 
-# Host URL
-APP_URL="https://your-app-service.run.app"
+// 3. Generate response with resilient model fallback
+// Plaintext & masked buffers are discarded from RAM once the response is sent
 ```
 
 ---
 
-## 🔒 Secret Management Setup (Google Cloud Secret Manager)
+## 2. Lock Down the API Key (Google Cloud Secret Manager)
 
-To manage credentials securely without hardcoding:
+Do not put `GEMINI_API_KEY` in your `.env` file or plaintext Cloud Run variables.
 
+### Create the Secret:
 ```bash
-# Set your Google Cloud project
-gcloud config set project YOUR_PROJECT_ID
+gcloud secrets create gemini-api-key --replication-policy="automatic"
+echo -n "YOUR_REAL_API_KEY" | gcloud secrets versions add gemini-api-key --data-file=-
+```
 
-# Create the Secret Manager secret for GEMINI_API_KEY
-gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
-
-# Populate the secret value
-echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
-
-# Grant the Cloud Run runtime service account access to read the secret
+### Grant Cloud Run Access:
+```bash
 PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
-gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
+
+gcloud secrets add-iam-policy-binding gemini-api-key \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
+```
+
+### Deploy the Revision with the Secret:
+```bash
+gcloud run deploy write-frankly \
+  --source . \
+  --region asia-southeast1 \
+  --allow-unauthenticated \
+  --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
+  --memory 512Mi \
+  --port 3000
+```
+
+### 🏷️ Campaign Verification Labeling:
+```bash
+gcloud run services update write-frankly \
+  --update-labels=dev-tutorial=cloud-run-ai-challenge \
+  --region=asia-southeast1
+```
+
+---
+
+## 3. Client-Side Implementation: Web Crypto Encryption at Rest
+
+To ensure end-to-end zero knowledge at rest:
+1. **User writes journal**: Plaintext exists in the local React component state.
+2. **Send to AI**: Dispatches an HTTPS POST to the Cloud Run endpoint (TLS encrypts in transit, backend masks in RAM).
+3. **Save to DB**: Before writing to Firestore, use the Web Crypto API (`lib/crypto.ts`) to encrypt the journal text with AES-GCM 256-bit.
+4. **Push to Firestore**: Store the ciphertext blob in the user's isolated partition.
+
+### Client-Side Encryption Utilities (`lib/crypto.ts`):
+```typescript
+import { deriveKeyFromPassphrase, encryptText, decryptText } from '@/lib/crypto';
+
+// Derive AES-GCM 256-bit key from passphrase / session key
+const key = await deriveKeyFromPassphrase(userPassphrase, salt);
+
+// Encrypt payload before Firestore write
+const encrypted = await encryptText(plainTextEntry, key);
+// Result: { ciphertext: "...", iv: "...", version: "v1-aes-gcm" }
+
+// Decrypt upon loading from Firestore
+const decrypted = await decryptText(encrypted.ciphertext, encrypted.iv, key);
 ```
 
 ---
 
 ## 🔥 Firestore Security Rules Configuration
-
-Deploy the owner-bound security rules to ensure zero cross-user access:
 
 ```javascript
 rules_version = '2';
@@ -82,43 +127,23 @@ firebase deploy --only firestore:rules
 
 ---
 
-## 🚀 Google Cloud Run Deployment
-
-Deploy the containerized service directly to Cloud Run:
-
-```bash
-# Deploy application container
-gcloud run deploy reflect-ai \
-  --source . \
-  --region asia-southeast1 \
-  --allow-unauthenticated \
-  --set-secrets GEMINI_API_KEY=GEMINI_API_KEY:latest \
-  --port 3000
-```
-
-### 🏷️ Campaign Verification Labeling
-
-Apply the mandatory verification label to register the service:
-
-```bash
-gcloud run services update reflect-ai \
-  --update-labels=dev-tutorial=cloud-run-ai-challenge \
-  --region=asia-southeast1
-```
-
----
-
 ## 🧪 Functional Walkthrough & Test Suite
+
+Run the automated test suites:
+```bash
+npm test
+```
 
 | Test Case | Flow / Interaction | Expected Outcome |
 | :--- | :--- | :--- |
-| **TC-01** | Landing Page Unauthenticated State | User sees hero screen with Google Sign-In button; private dashboard is protected. |
-| **TC-02** | Google Sign-In Authentication | Clicking "Continue with Google" triggers Firebase popup, establishes session, and transitions to Dashboard. |
-| **TC-03** | Create New Reflection | Clicking "+ New Reflection" adds a fresh document in Firestore under `/users/{uid}/entries/{id}` with default metadata. |
+| **TC-01** | Landing Page Unauthenticated State | Displays hero screen with Google Sign-In button; private dashboard is protected. |
+| **TC-02** | Google Sign-In Authentication | Clicking "Continue with Google" triggers Firebase popup and transitions to Dashboard. |
+| **TC-03** | Create New Entry | Clicking "+ New Entry" adds a fresh document in Firestore under `/users/{uid}/entries/{id}`. |
 | **TC-04** | Title & Mood Editing | Changing title or mood dropdown immediately syncs to Firestore with undefined-sanitized payload. |
-| **TC-05** | Multi-Turn Reflection Dialogue | Sending a prompt sends the thread context to Gemini API route and persists both user input and AI response to Firestore. |
-| **TC-06** | Quick AI Actions (Summary, Next Steps, Reframe) | Clicking quick action chips triggers specialized system directives and appends structured response. |
+| **TC-05** | Multi-Turn Journal Dialogue | Sending a prompt sends the thread context to Gemini API route and persists dialogue to Firestore. |
+| **TC-06** | Quick AI Actions (Challenge Assumption, Cut to the Point, etc.) | Clicking quick action chips triggers specialized system directives. |
 | **TC-07** | Search & Filter History | Typing query or selecting mood filter in the sidebar filters user entries in real-time. |
-| **TC-08** | Export Reflection | Clicking "Export" downloads a clean formatted Markdown file of the session dialogue. |
-| **TC-09** | Delete Entry | Clicking delete and confirming removes the document from Firestore and clears the active workspace. |
+| **TC-08** | Export Journal | Clicking "Export" downloads a clean formatted Markdown file of the session dialogue. |
+| **TC-09** | Client-Side Web Crypto AES-GCM | Encrypts and decrypts payloads in-browser with zero plaintext database exposure. |
 | **TC-10** | Sign Out | Clicking Sign Out terminates session and securely returns to Landing Page. |
+

@@ -67,11 +67,11 @@ export function LandingPage() {
         </div>
 
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-zinc-950 max-w-2xl mx-auto leading-[1.12]">
-          Say the thought out loud. Without performance.
+          Say the thought out loud. Performative-free.
         </h1>
 
         <p className="mt-5 text-base sm:text-lg text-zinc-500 max-w-xl mx-auto leading-relaxed">
-          A steady, grounded space to think out loud. No therapy-speak, no corporate cheerleading, no moralizing — just honest questions to see your situation clearly.
+          A steady, grounded space to think out loud. No therapy-speak, no corporate cheerleading, no moralizing, just honest talk to see your situation clearly.
         </p>
 
         {/* Primary CTA */}
@@ -114,7 +114,7 @@ export function LandingPage() {
         </div>
 
         <p className="mt-3 text-[11px] text-zinc-400">
-          No passwords stored. Secure authentication handled natively by Firebase.
+          No passwords stored. Secure authentication handled natively by Google&apos;s Firebase.
         </p>
 
         {/* Feature Grid */}
@@ -127,7 +127,7 @@ export function LandingPage() {
               Zero-Exposure Privacy
             </h3>
             <p className="mt-1.5 text-xs text-zinc-500 leading-relaxed">
-              Strict Firestore security rules enforce tenant isolation. Your unedited, unfiltered thoughts stay strictly yours.
+              Strict Firestore security rules enforce data isolation. Your unedited, unfiltered thoughts stay strictly yours.
             </p>
           </div>
 
@@ -139,7 +139,7 @@ export function LandingPage() {
               Unvarnished Clarity
             </h3>
             <p className="mt-1.5 text-xs text-zinc-500 leading-relaxed">
-              No generic nod-alongs or unearned silver linings. One sharp question at a time that targets the real gap or contradiction.
+              No generic nod-alongs or unearned silver linings. One sharp question at a time that asks what are you looking for.
             </p>
           </div>
 
@@ -148,10 +148,10 @@ export function LandingPage() {
               <Database className="w-4 h-4" />
             </div>
             <h3 className="text-sm font-semibold text-zinc-900">
-              Private Entry Archive
+              All-time Recorded
             </h3>
             <p className="mt-1.5 text-xs text-zinc-500 leading-relaxed">
-              Continuous Firestore synchronization ensures your journal history is private, safely stored, and accessible anytime.
+              Continuous Firestore sync ensures your journal history is private, safely stored, and accessible anytime.
             </p>
           </div>
         </div>

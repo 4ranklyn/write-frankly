@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
+import { scrubPII } from '@/lib/sanitizer';
 
 // Lazy-safe Google Gen AI client initialization
 function getGenAIClient(): GoogleGenAI {
@@ -148,34 +149,41 @@ SPECIAL DIRECTIVE (Reality Check / Call Out Contradiction):
 Directly target the unexamined assumption, excuse, or contradiction in what was written. Name it plainly without softening language, and ask 1 single probing question that tests whether their current narrative holds up.`;
     }
 
-    // 3. Format Multi-Turn Contents
+    // 3. Format Multi-Turn Contents with In-Memory PII Masking
     const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
-    // Context prelude with title, mood, and optional location
-    const contextHeader = `[Context: Journal Entry "${entryTitle}" | Current Mood: "${entryMood}"${locality ? ` | Location: "${locality}"` : ''}]`;
+    // Context prelude with title, mood, and optional location (scrubbed)
+    const safeTitle = scrubPII(entryTitle);
+    const safeLocality = locality ? scrubPII(locality) : '';
+    const contextHeader = `[Context: Journal Entry "${safeTitle}" | Current Mood: "${entryMood}"${safeLocality ? ` | Location: "${safeLocality}"` : ''}]`;
 
-    // Append previous message history (up to last 10 messages for context)
+    // Append previous message history (up to last 10 messages for context, masked in RAM)
     const recentHistory = rawHistory.slice(-10);
     for (const msg of recentHistory) {
       if (msg && typeof msg === 'object' && msg.content) {
         const role = msg.role === 'assistant' ? 'model' : 'user';
+        const safeContent = scrubPII(String(msg.content));
         contents.push({
           role,
-          parts: [{ text: String(msg.content) }],
+          parts: [{ text: safeContent }],
         });
       }
     }
 
-    // Append current prompt if provided
+    // Append current prompt if provided (masked in RAM)
     if (prompt) {
-      const formattedPrompt = contents.length === 0 ? `${contextHeader}\n\n${prompt}` : prompt;
+      const safePrompt = scrubPII(prompt);
+      const formattedPrompt = contents.length === 0 ? `${contextHeader}\n\n${safePrompt}` : safePrompt;
       contents.push({
         role: 'user',
         parts: [{ text: formattedPrompt }],
       });
     }
 
-    // 4. Generate with Resilient Model Fallback Ladder
+    // 4. Log metadata ONLY. Never the user payload.
+    console.log(`[INFO] Processing journal AI analysis | Mode: ${mode} | MessagesCount: ${contents.length} | HasLocality: ${Boolean(locality)}`);
+
+    // 5. Generate with Resilient Model Fallback Ladder
     const result = await generateContentWithFallback({
       systemInstruction,
       contents,
@@ -187,7 +195,10 @@ Directly target the unexamined assumption, excuse, or contradiction in what was 
       mode,
     });
   } catch (error) {
-    console.error('Error in /api/gemini/reflect:', error);
+    // Log error metadata only without payload
+    const errorStatus = (error as { status?: number })?.status || 500;
+    const errorName = error instanceof Error ? error.name : 'UnknownError';
+    console.error(`[ERROR] AI processing failed | Status: ${errorStatus} | ErrorName: ${errorName}`);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error processing AI reflection';
     return NextResponse.json(
       { error: errorMessage },
