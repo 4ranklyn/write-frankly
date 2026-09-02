@@ -26,4 +26,5 @@ export interface JournalEntry {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  isFinalized?: boolean;
 }

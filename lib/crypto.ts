@@ -35,15 +35,11 @@ export function isWebCryptoSupported(): boolean {
  * Generates cryptographically secure random bytes for Salt or IV.
  */
 export function generateRandomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  if (typeof window !== 'undefined' && window.crypto) {
-    window.crypto.getRandomValues(bytes);
-  } else {
-    // Fallback for SSR
-    for (let i = 0; i < length; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
+  if (typeof window === 'undefined' || !window.crypto?.getRandomValues) {
+    throw new Error('CRYPTO_UNAVAILABLE: Cryptographically secure RNG is only supported in browser runtime.');
   }
+  const bytes = new Uint8Array(length);
+  window.crypto.getRandomValues(bytes);
   return bytes;
 }
 

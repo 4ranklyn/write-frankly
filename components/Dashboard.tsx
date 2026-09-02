@@ -610,33 +610,50 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
 
             {/* Input Composer */}
             <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
-              <div className="max-w-2xl mx-auto relative">
-                <textarea
-                  ref={inputRef}
-                  id="reflection-input-textarea"
-                  rows={2}
-                  value={promptInput}
-                  onChange={(e) => setPromptInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendPrompt();
-                    }
-                  }}
-                  placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
-                  className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
-                />
+              {activeEntry.isFinalized ? (
+                <div className="max-w-2xl mx-auto text-center py-4 text-zinc-500 text-sm font-medium">
+                  This journal session has been ended and saved securely.
+                </div>
+              ) : (
+                <div className="max-w-2xl mx-auto flex flex-col space-y-3">
+                  <div className="relative">
+                    <textarea
+                      ref={inputRef}
+                      id="reflection-input-textarea"
+                      rows={2}
+                      value={promptInput}
+                      onChange={(e) => setPromptInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendPrompt();
+                        }
+                      }}
+                      placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
+                      className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
+                    />
 
-                <button
-                  id="send-reflection-btn"
-                  onClick={() => handleSendPrompt()}
-                  disabled={!promptInput.trim() || isGenerating}
-                  aria-label="Send reflection to Gemini"
-                  className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs"
-                >
-                  {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                </button>
-              </div>
+                    <button
+                      id="send-reflection-btn"
+                      onClick={() => handleSendPrompt()}
+                      disabled={!promptInput.trim() || isGenerating}
+                      aria-label="Send reflection to Gemini"
+                      className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs"
+                    >
+                      {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => handleUpdateMetadata({ isFinalized: true })}
+                      className="px-4 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-medium transition-colors shadow-2xs"
+                    >
+                      End & Save Journal
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (
