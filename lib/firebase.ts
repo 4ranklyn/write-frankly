@@ -13,6 +13,7 @@ const firebaseConfig = {
   oAuthClientId: process.env.NEXT_PUBLIC_FIREBASE_OAUTH_CLIENT_ID || '',
 };
 
+
 // Initialize or retrieve existing Firebase App instance
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
@@ -23,9 +24,13 @@ googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// Cloud Firestore with explicit database ID if provisioned
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+// Cloud Firestore
+// Use explicit database ID only if it's a valid database name (not an OAuth client ID or URL)
+const rawDbId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID?.trim();
+const isValidDbId = rawDbId && rawDbId !== '(default)' && !rawDbId.includes('.apps.googleusercontent.com') && !rawDbId.includes('http');
+
+export const db = isValidDbId
+  ? getFirestore(app, rawDbId)
   : getFirestore(app);
 
 // Server-side / Admin Auth stub & token validator

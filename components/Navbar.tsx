@@ -63,6 +63,7 @@ export function Navbar({ onNewEntry, onToggleSidebar }: NavbarProps) {
                     src={user.photoURL}
                     alt={user.displayName || 'User'}
                     fill
+                    sizes="28px"
                     referrerPolicy="no-referrer"
                     className="object-cover"
                   />
