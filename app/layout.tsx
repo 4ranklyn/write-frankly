@@ -1,17 +1,47 @@
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import './globals.css'; // Global styles
+import { PWAProvider } from '@/components/PWAProvider';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#000000',
+};
 
 export const metadata: Metadata = {
-  title: 'WriteFrankly — Private Journaling Companion',
+  title: 'Write Frankly — Private Journaling Companion',
   description: 'A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.',
+  applicationName: 'Frankly',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Frankly',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
   openGraph: {
-    title: 'WriteFrankly — Private Journaling Companion',
+    title: 'Write Frankly — Private Journaling Companion',
     description: 'A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'WriteFrankly — Private Journaling Companion',
+    title: 'Write Frankly — Private Journaling Companion',
     description: 'A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.',
   },
 };
@@ -55,7 +85,9 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           }}
         />
       </head>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning className="pt-safe pb-safe pl-safe pr-safe min-h-screen">
+        <PWAProvider>{children}</PWAProvider>
+      </body>
     </html>
   );
 }

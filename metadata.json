@@ -1,5 +1,5 @@
 {
-  "name": "WriteFrankly",
+  "name": "Write Frankly",
   "description": "A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.",
   "requestFramePermissions": [
     "geolocation"

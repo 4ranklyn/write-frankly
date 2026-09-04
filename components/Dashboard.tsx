@@ -18,6 +18,7 @@ import { useAutoSync } from '@/hooks/useAutoSync';
 import { LocationTag } from '@/components/LocationTag';
 import { CheckInHub } from '@/components/CheckInHub';
 import { PersonalitySettings } from '@/components/PersonalitySettings';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
@@ -584,6 +585,10 @@ export function Dashboard({
 
         {/* Left lower side of app UI: User Profile & Controls */}
         <div id="sidebar-user-footer" className="p-3 border-t border-zinc-200/60 bg-zinc-100/60 backdrop-blur-xs">
+          <div className="mb-2">
+            <PWAInstallButton variant="sidebar" />
+          </div>
+
           <button
             id="sidebar-personality-settings-btn"
             type="button"

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Offline — Write Frankly</title>
+  <style>
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: var(--font-sans);
+      background-color: #fafafa;
+      color: #18181b;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e4e4e7;
+      border-radius: 20px;
+      padding: 32px 28px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .icon-badge {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: #18181b;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px auto;
+    }
+    .icon-badge svg {
+      width: 28px;
+      height: 28px;
+    }
+    h1 {
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      color: #09090b;
+    }
+    p {
+      font-size: 14px;
+      color: #71717a;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 11px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 12px;
+      background: #18181b;
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s ease;
+    }
+    .btn:hover {
+      background: #27272a;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #d97706;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      margin-bottom: 16px;
+      font-weight: 500;
+    }
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #d97706;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status-pill">
+      <span class="pulse-dot"></span>
+      <span>No Internet Connection</span>
+    </div>
+    <div class="icon-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19h.01"></path>
+        <path d="M5.5 15.5a10 10 0 0 1 13 0"></path>
+        <path d="M8.5 12.5a5 5 0 0 1 7 0"></path>
+        <line x1="2" y1="2" x2="22" y2="22"></line>
+      </svg>
+    </div>
+    <h1>You're Offline</h1>
+    <p>Write Frankly is currently running in offline mode. Any thoughts written in guest or cached sessions remain safely stored on your device.</p>
+    <button class="btn" onclick="window.location.reload()">
+      Retry Connection
+    </button>
+  </div>
+</body>
+</html>

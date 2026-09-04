@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Sparkles, ShieldCheck, Database, MessageSquareText } from 'lucide-react';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 export function LandingPage() {
   const { signInWithGoogle, signInAsGuest, loading, error } = useAuth();
@@ -16,11 +17,12 @@ export function LandingPage() {
             <Sparkles className="w-4 h-4 text-zinc-100" />
           </div>
           <span className="font-semibold text-base tracking-tight text-zinc-900">
-            WriteFrankly
+            Write Frankly
           </span>
         </div>
 
         <div className="flex items-center space-x-2">
+          <PWAInstallButton variant="pill" />
           <button
             id="landing-guest-header-btn"
             onClick={signInAsGuest}
