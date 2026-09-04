@@ -1,6 +1,5 @@
 import type {Metadata, Viewport} from 'next';
 import './globals.css'; // Global styles
-import { PWAProvider } from '@/components/PWAProvider';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -86,7 +85,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         />
       </head>
       <body suppressHydrationWarning className="pt-safe pb-safe pl-safe pr-safe min-h-screen">
-        <PWAProvider>{children}</PWAProvider>
+        {children}
       </body>
     </html>
   );

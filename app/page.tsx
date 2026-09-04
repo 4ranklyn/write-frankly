@@ -1,10 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LandingPage } from '@/components/LandingPage';
 import { Dashboard } from '@/components/Dashboard';
 import { Sparkles } from 'lucide-react';
+
+const PWAProvider = dynamic(
+  () => import('@/components/PWAProvider').then((mod) => mod.PWAProvider),
+  { ssr: false }
+);
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -43,8 +49,10 @@ function AppContent() {
 
 export default function HomePage() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <PWAProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </PWAProvider>
   );
 }
