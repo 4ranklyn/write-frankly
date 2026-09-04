@@ -76,6 +76,7 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
                     src={user.photoURL}
                     alt={user.displayName || 'User'}
                     fill
+                    priority
                     sizes="28px"
                     referrerPolicy="no-referrer"
                     className="object-cover"

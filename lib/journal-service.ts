@@ -10,7 +10,7 @@ import {
   orderBy,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
 import { sanitizePayload } from './sanitizer';
 import { deriveKeyFromPassphrase, encryptText, decryptText, EncryptedPayload } from './crypto';
@@ -327,13 +327,25 @@ export function getStoredUserPreferences(userId?: string): UserPreferences {
 }
 
 /**
+ * Loads preferences directly from localStorage, bypassing remote Firestore queries.
+ */
+export function loadLocalPreferences(userId?: string): UserPreferences {
+  return getStoredUserPreferences(userId);
+}
+
+/**
  * Loads preferences from Firestore if available, otherwise returns local/default.
  */
-export async function loadUserPreferences(userId: string): Promise<UserPreferences> {
-  const local = getStoredUserPreferences(userId);
-  if (!userId || userId.startsWith('guest_')) {
-    return local;
+export async function loadUserPreferences(userId?: string): Promise<UserPreferences> {
+  const isGuest = !userId || userId.startsWith('guest_');
+
+  // Guard the Client Fetch: In your preferences hook/service, skip calling Firestore when in guest mode or when auth.currentUser is null:
+  if (!auth.currentUser || isGuest) {
+    // Load directly from localStorage, do not query Firestore
+    return loadLocalPreferences(userId);
   }
+
+  const local = loadLocalPreferences(userId);
 
   try {
     const settingsRef = doc(db, 'users', userId, 'settings', 'preferences');
@@ -366,7 +378,7 @@ export async function loadUserPreferences(userId: string): Promise<UserPreferenc
 /**
  * Saves user preferences to both localStorage and Firestore.
  */
-export async function saveUserPreferences(userId: string, prefs: UserPreferences): Promise<void> {
+export async function saveUserPreferences(userId?: string, prefs: UserPreferences = DEFAULT_USER_PREFERENCES): Promise<void> {
   const sanitized = sanitizePayload({
     ...prefs,
     personality: VALID_PERSONALITIES.includes(prefs.personality) ? prefs.personality : 'warm_confidant',
@@ -384,7 +396,8 @@ export async function saveUserPreferences(userId: string, prefs: UserPreferences
     }
   }
 
-  if (!userId || userId.startsWith('guest_')) {
+  const isGuest = !userId || userId.startsWith('guest_');
+  if (!auth.currentUser || isGuest) {
     return;
   }
 

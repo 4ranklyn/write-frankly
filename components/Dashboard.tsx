@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
 import { JournalEntry, ChatMessage, EntryMood, UserPreferences, AIPersonality } from '@/types/journal';
-import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry, getStoredUserPreferences, loadUserPreferences, saveUserPreferences } from '@/lib/journal-service';
+import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
 import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly } from '@/lib/utils';
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
@@ -19,6 +19,7 @@ import { LocationTag } from '@/components/LocationTag';
 import { CheckInHub } from '@/components/CheckInHub';
 import { PersonalitySettings } from '@/components/PersonalitySettings';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
+import { usePreferences } from '@/hooks/usePreferences';
 
 const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
@@ -74,25 +75,8 @@ export function Dashboard({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const [preferences, setPreferences] = useState<UserPreferences>(() =>
-    getStoredUserPreferences(user?.uid)
-  );
+  const { preferences, updatePreferences: handleUpdatePreferences } = usePreferences();
   const [isPersonalitySettingsOpen, setIsPersonalitySettingsOpen] = useState(false);
-
-  useEffect(() => {
-    if (user?.uid) {
-      loadUserPreferences(user.uid).then((p) => {
-        if (p) setPreferences(p);
-      });
-    }
-  }, [user?.uid]);
-
-  const handleUpdatePreferences = async (newPrefs: UserPreferences) => {
-    setPreferences(newPrefs);
-    if (user?.uid) {
-      await saveUserPreferences(user.uid, newPrefs);
-    }
-  };
 
   const getPersonaLabel = (id?: AIPersonality): string => {
     switch (id) {
@@ -612,6 +596,7 @@ export function Dashboard({
                       src={user.photoURL}
                       alt={user.displayName || 'User'}
                       fill
+                      priority
                       sizes="32px"
                       referrerPolicy="no-referrer"
                       className="object-cover"

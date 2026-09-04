@@ -39,6 +39,50 @@ console.log(`[INFO] Processing journal request | User: ${userId} | Mode: ${mode}
 
 ---
 
+## ⚡ Resolving "Precondition check failed" & GCP Prerequisites
+
+If your deployment fails with **`Precondition check failed`** (HTTP 400 / gRPC code 9 `FAILED_PRECONDITION`), one or more of Google Cloud's deployment prerequisites have not been satisfied in your Google Cloud Project:
+
+### 1. Enable Mandatory Google Cloud APIs
+Cloud Run builds and deployments require Cloud Build, Artifact Registry, and Cloud Run APIs:
+```bash
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  firestore.googleapis.com
+```
+
+### 2. Verify Active Billing Account
+Cloud Run and Cloud Build require a linked, active billing account. In Google Cloud Console:
+1. Navigate to **Billing** -> **Account Management**.
+2. Ensure your active project is linked to a valid billing account.
+
+### 3. Regional Quota Considerations
+If building in `asia-southeast1` fails due to regional compute quota restrictions (`due to quota restrictions, cannot run builds in this region`), specify an alternate region such as `us-central1` or `europe-west1`:
+```bash
+gcloud config set run/region us-central1
+```
+
+### 4. Service Account IAM Permissions
+Grant the Cloud Build service account and the Compute Engine default service account the necessary roles:
+```bash
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+
+# Grant Cloud Run Admin & Service Account User to Cloud Build
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/run.admin"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  ${PROJECT_NUMBER}-compute@developer.gserviceaccount.com \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+---
+
 ## 2. Lock Down the API Key (Google Cloud Secret Manager)
 
 Do not put `GEMINI_API_KEY` in your `.env` file or plaintext Cloud Run variables.

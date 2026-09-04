@@ -9,11 +9,9 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start -H 0.0.0.0",
+    "start": "node server.ts",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test tests/sanitizer.test.ts tests/security.test.ts tests/crypto.test.ts",
-    "clean": "next clean",
-    "prepare": "husky || true"
+    "test": "node --experimental-strip-types --test tests/sanitizer.test.ts tests/security.test.ts tests/crypto.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

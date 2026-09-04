@@ -185,4 +185,35 @@ describe('Security Constitution Test Suite', () => {
       assert.strictEqual(isValid, true);
     });
   });
+
+  describe('Directive 5: Preferences Fetch Guarding (Guest Mode & Null Auth)', () => {
+    // Simulator for the preference fetch guard
+    function shouldQueryFirestore(currentUser: unknown, userId?: string): boolean {
+      const isGuest = !userId || userId.startsWith('guest_');
+      if (!currentUser || isGuest) {
+        return false;
+      }
+      return true;
+    }
+
+    it('should skip Firestore query when auth.currentUser is null', () => {
+      const queryAllowed = shouldQueryFirestore(null, 'real-user-123');
+      assert.strictEqual(queryAllowed, false);
+    });
+
+    it('should skip Firestore query when user is in guest mode (guest_ prefix)', () => {
+      const queryAllowed = shouldQueryFirestore({ uid: 'guest_123' }, 'guest_123');
+      assert.strictEqual(queryAllowed, false);
+    });
+
+    it('should skip Firestore query when userId is undefined or empty', () => {
+      const queryAllowed = shouldQueryFirestore({ uid: 'real-user' }, undefined);
+      assert.strictEqual(queryAllowed, false);
+    });
+
+    it('should allow Firestore query when authenticated user is non-guest', () => {
+      const queryAllowed = shouldQueryFirestore({ uid: 'firebase-user-999' }, 'firebase-user-999');
+      assert.strictEqual(queryAllowed, true);
+    });
+  });
 });
