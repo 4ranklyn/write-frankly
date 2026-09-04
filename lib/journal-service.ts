@@ -129,7 +129,7 @@ export function subscribeToUserEntries(
           entries.push({
             id: docSnapshot.id,
             userId: data.userId || userId,
-            title: data.title || 'Untitled Reflection',
+            title: (data.title === 'Untitled Reflection' || !data.title) ? '' : data.title,
             initialThought: data.initialThought || '',
             summary: data.summary || '',
             mood: data.mood || 'thoughtful',

@@ -25,34 +25,30 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             __html: `
               (function() {
                 try {
-                  var g = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : null));
-                  if (!g) return;
-                  var _fetch = typeof g.fetch === 'function' ? g.fetch.bind(g) : null;
-                  
-                  function setupFetchAccessor(target) {
-                    if (!target) return;
+                  if (typeof window === 'undefined') return;
+                  var _fetch = window.fetch ? window.fetch.bind(window) : null;
+                  function makeWritable(obj) {
+                    if (!obj) return;
                     try {
-                      Object.defineProperty(target, 'fetch', {
-                        get: function() {
-                          return _fetch;
-                        },
-                        set: function(fn) {
-                          _fetch = fn;
-                        },
+                      Object.defineProperty(obj, 'fetch', {
+                        get: function() { return _fetch; },
+                        set: function(val) { _fetch = val; },
                         configurable: true,
                         enumerable: true
                       });
                     } catch (e) {}
                   }
-
-                  setupFetchAccessor(g);
+                  makeWritable(window);
                   try {
-                    var p = g;
-                    while (p && p !== Object.prototype) {
-                      setupFetchAccessor(p);
-                      p = Object.getPrototypeOf(p);
+                    var proto = Object.getPrototypeOf(window);
+                    while (proto && proto !== Object.prototype) {
+                      makeWritable(proto);
+                      proto = Object.getPrototypeOf(proto);
                     }
                   } catch (e) {}
+                  if (typeof Window !== 'undefined' && Window.prototype) {
+                    makeWritable(Window.prototype);
+                  }
                 } catch (err) {}
               })();
             `,

@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LandingPage } from '@/components/LandingPage';
-import { Navbar } from '@/components/Navbar';
 import { Dashboard } from '@/components/Dashboard';
 import { Sparkles } from 'lucide-react';
 
@@ -32,17 +31,11 @@ function AppContent() {
 
   // Authenticated user experience
   return (
-    <div className="min-h-screen flex flex-col bg-[#fafafa] text-zinc-900 selection:bg-zinc-200 selection:text-zinc-900">
-      <Navbar
-        onNewEntry={() => {
-          const newBtn = document.getElementById('sidebar-new-entry-btn');
-          if (newBtn) newBtn.click();
-        }}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-      />
+    <div className="h-screen flex flex-col bg-[#fafafa] text-zinc-900 selection:bg-zinc-200 selection:text-zinc-900 overflow-hidden">
       <Dashboard
         sidebarOpen={sidebarOpen}
         onCloseSidebar={() => setSidebarOpen(false)}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
     </div>
   );

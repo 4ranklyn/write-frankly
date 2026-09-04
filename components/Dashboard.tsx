@@ -7,13 +7,16 @@ import { JournalEntry, ChatMessage, EntryMood } from '@/types/journal';
 import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
 import { getCurrentTimestamp, generateUniqueId } from '@/lib/utils';
 import {
-  Sparkles, Plus, Trash2, Download, Send, Search, CheckCircle2,
+  Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
+  LogOut, PanelLeft,
 } from 'lucide-react';
+import Image from 'next/image';
 import Markdown from 'react-markdown';
 import { useLocation } from '@/hooks/useLocation';
+import { useAutoSync } from '@/hooks/useAutoSync';
 import { LocationTag } from '@/components/LocationTag';
-import { NotificationToggle } from '@/components/NotificationSettings';
+import { CheckInHub } from '@/components/CheckInHub';
 
 const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
@@ -39,19 +42,30 @@ const QUICK_ACTIONS: { id: string; label: string; mode: 'reflect' | 'summarize' 
   { id: 'action-reframe-btn', label: 'Call Out Contradiction', mode: 'reframe', prompt: 'Where am I contradicting myself or making excuses in what I just wrote?', icon: Compass },
 ];
 
-export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolean; onCloseSidebar: () => void }) {
-  const { user } = useAuth();
+export function Dashboard({
+  sidebarOpen,
+  onCloseSidebar,
+  onToggleSidebar,
+}: {
+  sidebarOpen: boolean;
+  onCloseSidebar: () => void;
+  onToggleSidebar?: () => void;
+}) {
+  const { user, signInWithGoogle, signOutUser } = useAuth();
+  const [guestEntry, setGuestEntry] = useState<JournalEntry | null>(null);
+  const isGuest = user?.isAnonymous ?? false;
+
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   const { locality, loading: locationLoading, fetchCurrentLocation } = useLocation();
-  const [isNotificationEnabled, setIsNotificationEnabled] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMoodFilter, setSelectedMoodFilter] = useState<string>('all');
 
   const [promptInput, setPromptInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCheckInHubOpen, setIsCheckInHubOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -59,6 +73,37 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSyncEntryRef = useRef<JournalEntry | null>(null);
+
+  const { scheduleSync, flushPendingSync } = useAutoSync(async () => {
+    if (!user || isGuest || !pendingSyncEntryRef.current) return;
+    
+    const entryToSave = pendingSyncEntryRef.current;
+    setSaveStatus('saving');
+    try {
+      await saveJournalEntry(user.uid, entryToSave);
+      if (pendingSyncEntryRef.current === entryToSave) {
+        pendingSyncEntryRef.current = null;
+      }
+      setSaveStatus('saved');
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage('Failed to sync metadata to Firestore.');
+      setSaveStatus('error');
+    }
+  }, 1000);
+
+  // Unload protection
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingSyncEntryRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const handleSelectStarter = (starter: string) => {
     setPromptInput(starter);
@@ -70,10 +115,57 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
 
   useEffect(() => {
     if (!user) return;
+    if (isGuest) {
+      if (!guestEntry) {
+        const timestamp = getCurrentTimestamp();
+        const newId = generateUniqueId('entry');
+        const formattedDate = new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const newEntry: JournalEntry = {
+          id: newId,
+          userId: user.uid,
+          title: '',
+          initialThought: '',
+          mood: 'thoughtful',
+          tags: [],
+          messages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setGuestEntry(newEntry);
+        setEntries([newEntry]);
+        setSelectedEntryId(newId);
+      } else {
+        setEntries([guestEntry]);
+      }
+      return;
+    }
+    
+    if (guestEntry) {
+      const migrate = async () => {
+        try {
+          const entryToMigrate = { ...guestEntry, userId: user.uid };
+          await saveJournalEntry(user.uid, entryToMigrate);
+          setGuestEntry(null);
+        } catch (e) {
+          console.error('Failed to migrate guest entry:', e);
+        }
+      };
+      migrate();
+    }
+    
     return subscribeToUserEntries(
       user.uid,
       (userEntries) => {
-        setEntries(userEntries);
+        setEntries((prevEntries) => {
+          // If we have pending edits, ensure the incoming data doesn't overwrite them
+          if (pendingSyncEntryRef.current) {
+            return userEntries.map(e => 
+              e.id === pendingSyncEntryRef.current?.id ? pendingSyncEntryRef.current : e
+            );
+          }
+          return userEntries;
+        });
         setSelectedEntryId((prev) => (prev && userEntries.some((e) => e.id === prev) ? prev : userEntries[0]?.id || null));
       },
       (err) => {
@@ -81,7 +173,7 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
         setSaveStatus('error');
       }
     );
-  }, [user]);
+  }, [user, isGuest, guestEntry]);
 
   const activeEntry = useMemo(() => entries.find((e) => e.id === selectedEntryId) || null, [entries, selectedEntryId]);
 
@@ -91,13 +183,22 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
 
   const handleCreateNewEntry = async () => {
     if (!user) return;
+    if (isGuest) {
+      if (guestEntry && guestEntry.messages.length > 0) {
+        alert("Guest session limit reached (1/1 entry). Create an account to unlock unlimited, encrypted journaling.");
+        return;
+      }
+      // If empty, let them just use the current guest entry
+      return;
+    }
+
     const timestamp = getCurrentTimestamp();
     const newId = generateUniqueId('entry');
     const formattedDate = new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const newEntry: JournalEntry = {
       id: newId,
       userId: user.uid,
-      title: `Entry ${formattedDate}`,
+      title: '',
       initialThought: '',
       mood: 'thoughtful',
       tags: [],
@@ -119,17 +220,22 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
     }
   };
 
-  const handleUpdateMetadata = async (updates: Partial<JournalEntry>) => {
+  const handleUpdateMetadata = (updates: Partial<JournalEntry>) => {
     if (!user || !activeEntry) return;
     const updated: JournalEntry = { ...activeEntry, ...updates, updatedAt: getCurrentTimestamp() };
-    setSaveStatus('saving');
-    try {
-      await saveJournalEntry(user.uid, updated);
-      setSaveStatus('saved');
-      setErrorMessage(null);
-    } catch {
-      setErrorMessage('Failed to sync metadata to Firestore.');
-      setSaveStatus('error');
+    
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    
+    if (isGuest) {
+      setGuestEntry(updated);
+    } else {
+      pendingSyncEntryRef.current = updated;
+      scheduleSync();
+    }
+    
+    if (updates.isFinalized) {
+      flushPendingSync();
+      setIsCheckInHubOpen(true);
     }
   };
 
@@ -137,6 +243,7 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
     customPrompt?: string,
     mode: 'general' | 'reflect' | 'summarize' | 'action_items' | 'reframe' = 'reflect'
   ) => {
+    flushPendingSync();
     const textToSend = (customPrompt || promptInput).trim();
     if (!textToSend || !user || !activeEntry || isGenerating) return;
 
@@ -162,7 +269,12 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
     setSaveStatus('saving');
 
     try {
-      await saveJournalEntry(user.uid, updatedEntry);
+      if (isGuest) {
+        setGuestEntry(updatedEntry);
+        setEntries([updatedEntry]);
+      } else {
+        await saveJournalEntry(user.uid, updatedEntry);
+      }
 
       const response = await fetch('/api/gemini/reflect', {
         method: 'POST',
@@ -199,25 +311,11 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
         updatedAt: aiTimestamp,
       };
 
-      await saveJournalEntry(user.uid, finalEntry);
-
-      if (mode === 'summarize' && isNotificationEnabled) {
-        const getTokenPromise = auth.currentUser
-          ? auth.currentUser.getIdToken()
-          : Promise.resolve('guest_token');
-
-        getTokenPromise
-          .then((token) => {
-            fetch('/api/notifications/dispatch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                summaryData: { title: activeEntry.title, mood: activeEntry.mood, summary: data.text, keyTakeaways: [data.text.slice(0, 150)] },
-                provider: 'all',
-              }),
-            }).catch(() => {});
-          })
-          .catch(() => {});
+      if (isGuest) {
+        setGuestEntry(finalEntry);
+        setEntries([finalEntry]);
+      } else {
+        await saveJournalEntry(user.uid, finalEntry);
       }
 
       setSaveStatus('saved');
@@ -232,7 +330,19 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
 
   const handleDeleteEntry = async (entryId: string) => {
     if (!user) return;
+    
+    if (isGuest) {
+      setGuestEntry(null);
+      setEntries([]);
+      setSelectedEntryId(null);
+      setDeleteConfirmId(null);
+      return;
+    }
+    
     try {
+      if (pendingSyncEntryRef.current?.id === entryId) {
+        pendingSyncEntryRef.current = null;
+      }
       await deleteJournalEntry(user.uid, entryId);
       setDeleteConfirmId(null);
       if (selectedEntryId === entryId) {
@@ -262,6 +372,18 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
     URL.revokeObjectURL(url);
   };
 
+  const handleCopyExportText = () => {
+    if (!activeEntry) return;
+    let md = `# ${activeEntry.title}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}\n\n## Journal Dialogue\n\n`;
+    activeEntry.messages.forEach((msg) => {
+      md += msg.role === 'user'
+        ? `### 👤 Entry Note (${new Date(msg.timestamp).toLocaleTimeString()})\n${msg.content}\n\n`
+        : `### ✍️ WriteFrankly [${msg.mode || 'Inquiry'}]\n${msg.content}\n\n`;
+    });
+    navigator.clipboard.writeText(md);
+    alert('Entry copied to clipboard!');
+  };
+
   const handleCopyMessage = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedMessageId(id);
@@ -288,17 +410,22 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
         }`}
       >
         <div className="p-3.5 border-b border-zinc-200/50 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Compass className="w-4 h-4 text-zinc-700" />
-            <h2 className="font-semibold text-zinc-900 text-xs tracking-tight">Reflections</h2>
+          <div className="flex items-center space-x-2.5">
+            <div className="w-6 h-6 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-50 shadow-2xs">
+              <Sparkles className="w-3.5 h-3.5 text-zinc-100" />
+            </div>
+            <div className="flex items-baseline space-x-1.5">
+              <span className="font-semibold text-zinc-900 text-xs tracking-tight">WriteFrankly</span>
+            </div>
           </div>
           <button
             id="sidebar-new-entry-btn"
             onClick={handleCreateNewEntry}
-            className="p-1 rounded-lg bg-zinc-100 hover:bg-zinc-200/80 text-zinc-800 transition-colors border border-zinc-200/60"
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-200 shadow-2xs cursor-pointer"
             title="Create New Reflection"
           >
             <Plus className="w-3.5 h-3.5" />
+            <span>New Entry</span>
           </button>
         </div>
 
@@ -379,10 +506,18 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
                   <p className="text-[11px] text-zinc-500 truncate mt-1">
                     {entry.initialThought || entry.messages[0]?.content || 'Empty reflection...'}
                   </p>
-                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-zinc-100">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-800 border-zinc-200/80">
-                      {moodInfo.icon} {moodInfo.label}
-                    </span>
+                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-zinc-100 flex-wrap gap-1">
+                    <div className="flex items-center space-x-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-800 border-zinc-200/80">
+                        {moodInfo.icon} {moodInfo.label}
+                      </span>
+                      {entry.messages.some(m => m.mode === 'debrief') && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-indigo-50 text-indigo-700 border-indigo-200/80 flex items-center space-x-1">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          <span>Checked in</span>
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-zinc-400">
                       {entry.messages.length} {entry.messages.length === 1 ? 'turn' : 'turns'}
                     </span>
@@ -393,10 +528,70 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
           )}
         </div>
 
-        <div className="p-2 border-t border-zinc-200/50 md:hidden">
-          <button onClick={onCloseSidebar} className="w-full py-1.5 rounded-xl bg-zinc-100 text-zinc-700 text-xs font-medium">
-            Close History
-          </button>
+        {/* Left lower side of app UI: User Profile & Controls */}
+        <div id="sidebar-user-footer" className="p-3 border-t border-zinc-200/60 bg-zinc-100/60 backdrop-blur-xs">
+          {user && !isGuest ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                {user.photoURL ? (
+                  <div className="relative w-8 h-8 rounded-full overflow-hidden border border-zinc-200/80 shrink-0">
+                    <Image
+                      src={user.photoURL}
+                      alt={user.displayName || 'User'}
+                      fill
+                      sizes="32px"
+                      referrerPolicy="no-referrer"
+                      className="object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-700 flex items-center justify-center text-xs font-medium shrink-0">
+                    {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0 text-left">
+                  <p className="text-xs font-medium text-zinc-900 leading-tight truncate">
+                    {user.displayName || 'Reflector'}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 leading-tight truncate">
+                    {user.email}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                id="sign-out-btn"
+                onClick={signOutUser}
+                title="Sign Out"
+                aria-label="Sign Out"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200/70 transition-colors shrink-0"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-xs font-medium text-zinc-600">Guest Mode</span>
+              </div>
+              <button
+                onClick={signInWithGoogle}
+                className="text-xs font-medium text-zinc-900 hover:underline px-2.5 py-1 rounded-md bg-white border border-zinc-200 shadow-2xs"
+              >
+                Sign In
+              </button>
+            </div>
+          )}
+
+          <div className="mt-2 md:hidden">
+            <button
+              onClick={onCloseSidebar}
+              className="w-full py-1.5 rounded-xl bg-zinc-200/70 text-zinc-700 text-xs font-medium hover:bg-zinc-200 transition-colors"
+            >
+              Close History
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -405,16 +600,44 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
         {activeEntry ? (
-          <>
-            <div className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 shrink-0 min-w-0">
+          isCheckInHubOpen ? (
+            <CheckInHub
+              entry={activeEntry}
+              onClose={() => setIsCheckInHubOpen(false)}
+              onSaveMessages={async (newMessages) => {
+                const updated = { ...activeEntry, messages: newMessages, updatedAt: getCurrentTimestamp() };
+                if (isGuest) {
+                  setGuestEntry(updated);
+                  setEntries((prev) => prev.map((e) => (e.id === activeEntry.id ? updated : e)));
+                } else {
+                  if (user) await saveJournalEntry(user.uid, updated);
+                }
+              }}
+              isGuest={isGuest}
+            />
+          ) : (
+            <>
+              <div className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 shrink-0 min-w-0">
               <div className="flex items-center space-x-2 sm:space-x-2.5 flex-1 min-w-0">
+                {onToggleSidebar && (
+                  <button
+                    id="mobile-sidebar-toggle-btn"
+                    onClick={onToggleSidebar}
+                    aria-label="Toggle history sidebar"
+                    className="md:hidden p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0"
+                    title="Toggle sidebar"
+                  >
+                    <PanelLeft className="w-4 h-4" />
+                  </button>
+                )}
                 <input
                   id="entry-title-input"
                   type="text"
-                  value={activeEntry.title}
+                  value={activeEntry.title === 'Untitled Reflection' ? '' : activeEntry.title}
                   onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
-                  placeholder="Reflection Title..."
-                  className="font-semibold text-sm sm:text-base text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[120px] max-w-md truncate"
+                  onBlur={flushPendingSync}
+                  placeholder="Untitled Reflection"
+                  className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[120px] max-w-md truncate"
                 />
                 <select
                   id="entry-mood-select"
@@ -430,29 +653,56 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
               </div>
 
               <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
-                <NotificationToggle enabled={isNotificationEnabled} onToggle={setIsNotificationEnabled} />
+                {isGuest && (
+                  <div
+                    title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
+                    className="text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center space-x-1.5 shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200"
+                  >
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    <span>Guest Mode (Not Saved)</span>
+                  </div>
+                )}
 
-                <div
-                  id="save-status-indicator"
-                  title={saveStatus === 'saved' ? 'Saved to cloud storage' : saveStatus === 'saving' ? 'Syncing changes...' : 'Save issue detected'}
-                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center space-x-1.5 shrink-0 whitespace-nowrap transition-colors ${
-                    saveStatus === 'saved' ? 'text-zinc-600 bg-zinc-100/90' : saveStatus === 'saving' ? 'text-zinc-700 bg-zinc-100 animate-pulse' : 'text-rose-700 bg-rose-50'
-                  }`}
-                >
-                  {saveStatus === 'saved' && <CheckCircle2 className="w-3 h-3 text-zinc-700 shrink-0" />}
-                  {saveStatus === 'saving' && <RefreshCw className="w-3 h-3 text-zinc-600 animate-spin shrink-0" />}
-                  {saveStatus === 'error' && <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />}
-                  <span>{saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Save Error'}</span>
-                </div>
+                {isGuest ? (
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      onClick={handleExportMarkdown}
+                      title="Download as Markdown (.md)"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Export .md</span>
+                    </button>
+                    <button
+                      onClick={handleCopyExportText}
+                      title="Copy Raw Text to Clipboard"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Copy Text</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    id="export-entry-btn"
+                    onClick={handleExportMarkdown}
+                    title="Export reflection as Markdown"
+                    className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Export</span>
+                  </button>
+                )}
 
                 <button
-                  id="export-entry-btn"
-                  onClick={handleExportMarkdown}
-                  title="Export reflection as Markdown"
-                  className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0"
+                  onClick={() => {
+                    flushPendingSync();
+                    setIsCheckInHubOpen(true);
+                  }}
+                  className="px-2.5 py-1 rounded-full bg-zinc-900 text-zinc-50 hover:bg-zinc-800 transition-colors text-xs font-medium flex items-center space-x-1 shrink-0"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Export</span>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Check-in</span>
                 </button>
 
                 {deleteConfirmId === activeEntry.id ? (
@@ -496,6 +746,21 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
                   className="px-2 py-0.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-md font-medium text-[11px]"
                 >
                   Retry Save
+                </button>
+              </div>
+            )}
+
+            {isGuest && (
+              <div className="bg-zinc-900 text-zinc-50 px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">
+                <div className="flex items-center space-x-2 text-zinc-300">
+                  <Sparkles className="w-4 h-4 text-zinc-400" />
+                  <span>You are trying Frankly in guest mode. Want end-to-end zero-knowledge encryption across devices?</span>
+                </div>
+                <button
+                  onClick={() => signInWithGoogle()}
+                  className="px-3 py-1.5 rounded-md bg-white text-zinc-900 font-medium hover:bg-zinc-200 transition-colors shrink-0 whitespace-nowrap"
+                >
+                  Create Encrypted Account
                 </button>
               </div>
             )}
@@ -623,6 +888,7 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
                       rows={2}
                       value={promptInput}
                       onChange={(e) => setPromptInput(e.target.value)}
+                      onBlur={flushPendingSync}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -656,6 +922,7 @@ export function Dashboard({ sidebarOpen, onCloseSidebar }: { sidebarOpen: boolea
               )}
             </div>
           </>
+          )
         ) : (
           <div className="flex-1 flex items-center justify-center p-6 text-center bg-[#fafafa]">
             <div className="max-w-sm">

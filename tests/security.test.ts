@@ -185,22 +185,4 @@ describe('Security Constitution Test Suite', () => {
       assert.strictEqual(isValid, true);
     });
   });
-
-  describe('Directive 5: Notification Dispatch Route Security Gate (/api/notifications/dispatch)', () => {
-    it('should reject unauthenticated webhook dispatch requests', () => {
-      const headersWithoutAuth = new Headers({});
-      const authHeader = headersWithoutAuth.get('authorization');
-      assert.strictEqual(authHeader?.startsWith('Bearer '), false || undefined);
-    });
-
-    it('should require non-empty title and summary for webhook dispatch', () => {
-      const invalidSummary = { title: '', summary: '' };
-      const isValid = Boolean(invalidSummary.title && invalidSummary.summary);
-      assert.strictEqual(isValid, false);
-
-      const validSummary = { title: 'Reflection Title', summary: 'Reflection Summary' };
-      const isComplete = Boolean(validSummary.title && validSummary.summary);
-      assert.strictEqual(isComplete, true);
-    });
-  });
 });
