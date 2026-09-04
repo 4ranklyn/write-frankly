@@ -9,7 +9,7 @@ import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly }
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
-  LogOut, PanelLeft, Sliders,
+  LogOut, PanelLeft, Sliders, MapPin,
 } from 'lucide-react';
 import Image from 'next/image';
 import Markdown from 'react-markdown';
@@ -60,8 +60,7 @@ export function Dashboard({
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-
-  const { locality, loading: locationLoading, fetchCurrentLocation } = useLocation();
+  const [currentLocation, setCurrentLocation] = useState<string | undefined>(undefined);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMoodFilter, setSelectedMoodFilter] = useState<string>('all');
@@ -198,6 +197,20 @@ export function Dashboard({
 
   const activeEntry = useMemo(() => entries.find((e) => e.id === selectedEntryId) || null, [entries, selectedEntryId]);
 
+  const effectiveLocation = currentLocation !== undefined ? currentLocation : activeEntry?.location;
+
+  const handleSelectEntry = (entry: JournalEntry) => {
+    setSelectedEntryId(entry.id);
+    setCurrentLocation(entry.location);
+    if (typeof window !== 'undefined' && window.innerWidth < 768) onCloseSidebar();
+  };
+
+  const handleLocationChange = (loc: string | null) => {
+    const nextLoc = loc || undefined;
+    setCurrentLocation(nextLoc);
+    handleUpdateMetadata({ location: nextLoc });
+  };
+
   const editorWordCount = useMemo(() => {
     const currentDraft = promptInput.trim();
     const messagesText = (activeEntry?.messages || []).map((m) => m.content).join(' ');
@@ -218,6 +231,7 @@ export function Dashboard({
 
   const handleCreateNewEntry = async () => {
     if (!user) return;
+    setCurrentLocation(undefined);
     if (isGuest) {
       if (guestEntry && guestEntry.messages.length > 0) {
         alert("Guest session limit reached (1/1 entry). Create an account to unlock unlimited, encrypted journaling.");
@@ -294,6 +308,7 @@ export function Dashboard({
     const updatedMessages = [...(activeEntry.messages || []), userMessage];
     const updatedEntry: JournalEntry = {
       ...activeEntry,
+      location: effectiveLocation,
       initialThought: activeEntry.initialThought || textToSend,
       messages: updatedMessages,
       updatedAt: userTimestamp,
@@ -319,7 +334,7 @@ export function Dashboard({
           mode,
           title: activeEntry.title,
           mood: activeEntry.mood,
-          locality: locality || undefined,
+          locality: effectiveLocation || undefined,
           history: updatedMessages,
           personality: preferences.personality,
           customToneDirective: preferences.customToneDirective,
@@ -393,7 +408,8 @@ export function Dashboard({
 
   const handleExportMarkdown = () => {
     if (!activeEntry) return;
-    let md = `# ${activeEntry.title}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}\n\n## Journal Dialogue\n\n`;
+    const locHeader = effectiveLocation ? `\n**Location:** ${effectiveLocation}` : '';
+    let md = `# ${activeEntry.title || 'Untitled Reflection'}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}${locHeader}\n\n## Journal Dialogue\n\n`;
     activeEntry.messages.forEach((msg) => {
       md += msg.role === 'user'
         ? `### 👤 Entry Note (${new Date(msg.timestamp).toLocaleTimeString()})\n${msg.content}\n\n`
@@ -404,14 +420,15 @@ export function Dashboard({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${activeEntry.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+    a.download = `${(activeEntry.title || 'reflection').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleCopyExportText = () => {
     if (!activeEntry) return;
-    let md = `# ${activeEntry.title}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}\n\n## Journal Dialogue\n\n`;
+    const locHeader = effectiveLocation ? `\n**Location:** ${effectiveLocation}` : '';
+    let md = `# ${activeEntry.title || 'Untitled Reflection'}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}${locHeader}\n\n## Journal Dialogue\n\n`;
     activeEntry.messages.forEach((msg) => {
       md += msg.role === 'user'
         ? `### 👤 Entry Note (${new Date(msg.timestamp).toLocaleTimeString()})\n${msg.content}\n\n`
@@ -526,10 +543,7 @@ export function Dashboard({
                 <div
                   key={entry.id}
                   id={`entry-item-${entry.id}`}
-                  onClick={() => {
-                    setSelectedEntryId(entry.id);
-                    if (typeof window !== 'undefined' && window.innerWidth < 768) onCloseSidebar();
-                  }}
+                  onClick={() => handleSelectEntry(entry)}
                   className={`p-2.5 rounded-xl border transition-all duration-150 cursor-pointer text-left ${
                     isSelected ? 'bg-white border-zinc-300 shadow-2xs' : 'bg-transparent hover:bg-white/60 border-transparent hover:border-zinc-200/60'
                   }`}
@@ -546,10 +560,20 @@ export function Dashboard({
                     {entry.initialThought || entry.messages[0]?.content || 'Empty reflection...'}
                   </p>
                   <div className="flex items-center justify-between mt-2 pt-1 border-t border-zinc-100 flex-wrap gap-1">
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center space-x-1 flex-wrap gap-1">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-800 border-zinc-200/80">
                         {moodInfo.icon} {moodInfo.label}
                       </span>
+                      {entry.location && (
+                        <span
+                          id={`entry-location-pill-${entry.id}`}
+                          className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-600 border-zinc-200/80 flex items-center space-x-1 max-w-[130px] truncate"
+                          title={`Location: ${entry.location}`}
+                        >
+                          <MapPin className="w-2.5 h-2.5 shrink-0 text-zinc-500" />
+                          <span className="truncate">{entry.location}</span>
+                        </span>
+                      )}
                       {entry.messages.some(m => m.mode === 'debrief') && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-indigo-50 text-indigo-700 border-indigo-200/80 flex items-center space-x-1">
                           <Sparkles className="w-2.5 h-2.5" />
@@ -692,7 +716,7 @@ export function Dashboard({
                       <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
                     ))}
                   </select>
-                  <LocationTag locality={locality} loading={locationLoading} onAttach={fetchCurrentLocation} />
+                  <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
                 </div>
 
                 <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">

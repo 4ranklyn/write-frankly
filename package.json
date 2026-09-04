@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "next build && cp -r public .next/standalone/ 2>/dev/null || true && cp -r .next/static .next/standalone/.next/ 2>/dev/null || true",
     "start": "node server.ts",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test tests/sanitizer.test.ts tests/security.test.ts tests/crypto.test.ts"

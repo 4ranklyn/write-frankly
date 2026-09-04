@@ -87,18 +87,15 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 Do not put `GEMINI_API_KEY` in your `.env` file or plaintext Cloud Run variables.
 
-### Create the Secret:
+### Secret Manager Bindings:
 ```bash
-gcloud secrets create gemini-api-key --replication-policy="automatic"
-echo -n "YOUR_REAL_API_KEY" | gcloud secrets versions add gemini-api-key --data-file=-
-```
+# Create and populate the secret
+gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
+echo -n "YOUR_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
 
-### Grant Cloud Run Access:
-```bash
-PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
-
-gcloud secrets add-iam-policy-binding gemini-api-key \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+# Grant the default Cloud Run service account access to read the secret
+gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
+  --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 ```
 
@@ -108,16 +105,16 @@ gcloud run deploy write-frankly \
   --source . \
   --region asia-southeast1 \
   --allow-unauthenticated \
-  --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
+  --set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest \
   --memory 512Mi \
   --port 3000
 ```
 
 ### 🏷️ Campaign Verification Labeling:
 ```bash
-gcloud run services update write-frankly \
+gcloud run services update <SERVICE_NAME> \
   --update-labels=dev-tutorial=cloud-run-ai-challenge \
-  --region=asia-southeast1
+  --region=<REGION>
 ```
 
 ---
@@ -153,6 +150,9 @@ const decrypted = await decryptText(encrypted.ciphertext, encrypted.iv, key);
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId}/interactions/{interactionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
       

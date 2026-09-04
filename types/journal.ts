@@ -37,4 +37,18 @@ export interface JournalEntry {
   createdAt: number;
   updatedAt: number;
   isFinalized?: boolean;
+  location?: string;
 }
+
+export interface JournalEntryDraft {
+  title?: string;
+  initialThought?: string;
+  summary?: string;
+  mood?: EntryMood;
+  tags?: string[];
+  messages?: ChatMessage[];
+  location?: string;
+  isFinalized?: boolean;
+}
+
+export type DecryptedJournalEntry = JournalEntry;

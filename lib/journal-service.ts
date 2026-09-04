@@ -127,11 +127,17 @@ export function subscribeToUserEntries(
             }))
           );
 
+          // Decrypt title, initialThought, and location on the fly
+          const rawTitle = data.title ? await decryptString(data.title, userId) : '';
+          const cleanTitle = (rawTitle === 'Untitled Reflection' || !rawTitle) ? '' : rawTitle;
+          const decryptedInitialThought = data.initialThought ? await decryptString(data.initialThought, userId) : '';
+          const decryptedLocation = data.location ? await decryptString(data.location, userId) : undefined;
+
           entries.push({
             id: docSnapshot.id,
             userId: data.userId || userId,
-            title: (data.title === 'Untitled Reflection' || !data.title) ? '' : data.title,
-            initialThought: data.initialThought || '',
+            title: cleanTitle,
+            initialThought: decryptedInitialThought,
             summary: data.summary || '',
             mood: data.mood || 'thoughtful',
             tags: Array.isArray(data.tags) ? data.tags : [],
@@ -139,6 +145,7 @@ export function subscribeToUserEntries(
             createdAt: data.createdAt || Date.now(),
             updatedAt: data.updatedAt || Date.now(),
             isFinalized: data.isFinalized || false,
+            location: decryptedLocation,
           });
         }
         onData(entries);
@@ -178,8 +185,16 @@ export async function saveJournalEntry(
     }))
   );
 
+  const isGuest = userId.startsWith('guest_');
+  const encryptedTitle = (!isGuest && entry.title) ? await encryptString(entry.title, userId) : entry.title;
+  const encryptedInitialThought = (!isGuest && entry.initialThought) ? await encryptString(entry.initialThought, userId) : entry.initialThought;
+  const encryptedLocation = (!isGuest && entry.location) ? await encryptString(entry.location, userId) : entry.location;
+
   const cleanPayload = sanitizePayload({
     ...entry,
+    title: encryptedTitle,
+    initialThought: encryptedInitialThought,
+    location: encryptedLocation,
     messages: encryptedMessages,
     userId,
     updatedAt: Date.now(),

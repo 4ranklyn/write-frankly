@@ -1,25 +1,34 @@
-import { createServer } from 'node:http';
-import { parse } from 'node:url';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import next from 'next';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const port = parseInt(process.env.PORT || '3000', 10);
-const hostname = process.env.HOSTNAME || '0.0.0.0';
 const dev = process.env.NODE_ENV !== 'production';
-
-const app = next({
-  dev,
-  hostname,
-  port,
-  dir: __dirname,
-});
-const handle = app.getRequestHandler();
+const standalonePath = path.join(__dirname, '.next', 'standalone', 'server.js');
 
 async function bootstrap() {
+  // If production standalone build exists, run the standalone server
+  if (!dev && fs.existsSync(standalonePath)) {
+    await import(standalonePath);
+    return;
+  }
+
+  const port = parseInt(process.env.PORT || '3000', 10);
+  const hostname = process.env.HOSTNAME || '0.0.0.0';
+  const { default: next } = await import('next');
+  const { createServer } = await import('node:http');
+  const { parse } = await import('node:url');
+
+  const app = next({
+    dev,
+    hostname,
+    port,
+    dir: __dirname,
+  });
+  const handle = app.getRequestHandler();
+
   try {
     await app.prepare();
 
@@ -68,3 +77,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+

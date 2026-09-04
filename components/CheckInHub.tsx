@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
-import { Send, X, RefreshCw, Sparkles, Sliders } from 'lucide-react';
+import { Send, X, RefreshCw, Sparkles, Sliders, MapPin } from 'lucide-react';
 import { generateUniqueId, getCurrentTimestamp, formatDateTime } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { PersonalitySettings } from '@/components/PersonalitySettings';
@@ -116,6 +116,8 @@ export function CheckInHub({
             'I just finished writing my journal entry.';
         }
 
+        const localityPayload = entry?.location || (isGlobal ? recentEntriesToUse[0]?.location : undefined);
+
         const response = await fetch('/api/gemini/reflect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -125,6 +127,7 @@ export function CheckInHub({
             history: [],
             title: titlePayload,
             mood: moodPayload,
+            locality: localityPayload || undefined,
             personality: userPreferences.personality,
             customToneDirective: userPreferences.customToneDirective,
           }),
@@ -195,6 +198,8 @@ export function CheckInHub({
         ? recentEntriesToUse[0]?.mood || 'thoughtful'
         : entry?.mood || 'thoughtful';
 
+      const localityPayload = entry?.location || (isGlobal ? recentEntriesToUse[0]?.location : undefined);
+
       const response = await fetch('/api/gemini/reflect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -204,6 +209,7 @@ export function CheckInHub({
           history: newMessages.slice(0, -1),
           title: titlePayload,
           mood: moodPayload,
+          locality: localityPayload || undefined,
           personality: userPreferences.personality,
           customToneDirective: userPreferences.customToneDirective,
         }),
@@ -260,6 +266,16 @@ export function CheckInHub({
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
                   {isGlobal ? 'Holistic Debrief' : 'Entry Debrief'}
                 </span>
+                {(entry?.location || (isGlobal && recentEntriesToUse[0]?.location)) && (
+                  <span
+                    id="checkin-hub-location-badge"
+                    className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800/80 text-neutral-300 border border-neutral-700"
+                    title={`Setting: ${entry?.location || recentEntriesToUse[0]?.location}`}
+                  >
+                    <MapPin className="w-2.5 h-2.5 text-neutral-400" />
+                    <span className="truncate max-w-[140px]">{entry?.location || recentEntriesToUse[0]?.location}</span>
+                  </span>
+                )}
                 <button
                   id="checkin-hub-persona-indicator-btn"
                   type="button"

@@ -1,6 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Interactions subcollection explicitly isolated for user
+    match /users/{userId}/interactions/{interactionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // User profile document and all nested collections/subcollections (interactions, entries)
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
