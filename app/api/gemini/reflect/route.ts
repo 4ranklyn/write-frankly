@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
 import { scrubPII } from '@/lib/sanitizer';
 
@@ -8,15 +8,28 @@ function getGenAIClient(): GoogleGenAI {
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is not configured');
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
 }
 
-// Resilient Model Fallback Ladder ordered by availability and latency
+// Resilient Model Fallback Ladder ordered as requested:
+// 1. gemini-3.8-flash (Primary)
+// 2. gemini-3.7-flash (First fallback)
+// 3. gemini-3.5-flash-lite (Fast low-token fallback)
+// 4. gemini-3.1-flash-lite (Cost-effective fallback)
+// 5. gemini-flash-latest (Cheapest dynamic alias available)
 const MODEL_FALLBACK_LADDER = [
-  'gemini-3.6-flash',
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
-  'gemini-3.7-flash',
 ];
 
 interface FallbackOptions {
@@ -26,43 +39,76 @@ interface FallbackOptions {
 
 /**
  * Executes content generation sequentially through the fallback ladder
- * if recoverable errors (503, 429, 404, 500) occur.
+ * with optimized ThinkingLevel.LOW to minimize token usage and latency.
  */
 async function generateContentWithFallback(options: FallbackOptions): Promise<{ text: string; modelUsed: string }> {
   const ai = getGenAIClient();
   let lastError: unknown = null;
 
   for (const model of MODEL_FALLBACK_LADDER) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: options.contents,
-        config: {
-          systemInstruction: options.systemInstruction,
-          temperature: 0.7,
-        },
-      });
+    const isGemini3 = model.startsWith('gemini-3');
 
-      const responseText = response.text || '';
-      return { text: responseText, modelUsed: model };
-    } catch (err: unknown) {
-      lastError = err;
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      console.warn(`[Gemini API] Failed with model ${model}: ${errorMessage}. Attempting next fallback...`);
+    // Attempt with low thinking level for fast response and minimal token consumption
+    const configsToTry: Array<{
+      systemInstruction?: string;
+      temperature: number;
+      thinkingConfig?: { thinkingLevel: ThinkingLevel };
+    }> = isGemini3
+      ? [
+          {
+            systemInstruction: options.systemInstruction,
+            temperature: 0.7,
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.LOW,
+            },
+          },
+          {
+            systemInstruction: options.systemInstruction,
+            temperature: 0.7,
+          },
+        ]
+      : [
+          {
+            systemInstruction: options.systemInstruction,
+            temperature: 0.7,
+          },
+        ];
 
-      // Check if error is recoverable (rate limit, service unavailable, not found, internal server error)
-      const isRecoverable =
-        errorMessage.includes('429') ||
-        errorMessage.includes('503') ||
-        errorMessage.includes('500') ||
-        errorMessage.includes('404') ||
-        errorMessage.includes('RESOURCE_EXHAUSTED') ||
-        errorMessage.includes('UNAVAILABLE') ||
-        errorMessage.includes('NOT_FOUND');
+    for (const config of configsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: options.contents,
+          config,
+        });
 
-      if (!isRecoverable) {
-        // If it's an unrecoverable error (e.g. invalid API key format), bubble up or try one more fallback
-        continue;
+        const responseText = response.text || '';
+        return { text: responseText, modelUsed: model };
+      } catch (err: unknown) {
+        lastError = err;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+
+        // If this model rejected thinkingConfig, retry immediately on the fallback config for this model
+        if (config.thinkingConfig && (errorMessage.includes('thinking') || errorMessage.includes('invalid') || errorMessage.includes('400'))) {
+          continue;
+        }
+
+        console.warn(`[Gemini API] Failed with model ${model}: ${errorMessage}. Attempting next fallback...`);
+
+        // Check if error is recoverable
+        const isRecoverable =
+          errorMessage.includes('429') ||
+          errorMessage.includes('503') ||
+          errorMessage.includes('500') ||
+          errorMessage.includes('404') ||
+          errorMessage.includes('RESOURCE_EXHAUSTED') ||
+          errorMessage.includes('UNAVAILABLE') ||
+          errorMessage.includes('NOT_FOUND');
+
+        if (!isRecoverable) {
+          break;
+        }
+        break;
       }
     }
   }
@@ -136,6 +182,10 @@ Directly target the unexamined assumption, excuse, or contradiction in what was 
       systemInstruction += `
 SPECIAL DIRECTIVE (Check-in Debrief):
 You are debriefing the writer immediately after they finished a journal entry. Acknowledge the emotional texture of what was just written, validate their honesty, and offer one gentle, perceptive open-ended question to kick off the conversation. Keep it conversational and supportive.`;
+    } else if (mode === 'global_checkin') {
+      systemInstruction += `
+SPECIAL DIRECTIVE (Holistic Confidant Check-in):
+Review the user's recent themes and emotional trajectory. Welcome them back, summarize the mood pattern gently, and ask how they are feeling right now in this moment. Listen deeply, holding space without judgment or rush to problem-solve.`;
     }
 
     // 3. Format Multi-Turn Contents with In-Memory PII Masking

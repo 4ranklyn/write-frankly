@@ -1,58 +1,126 @@
+'use client';
+
 import React, { useState, useRef, useEffect } from 'react';
 import { JournalEntry, ChatMessage } from '@/types/journal';
-import { Send, X, RefreshCw } from 'lucide-react';
-import { generateUniqueId, getCurrentTimestamp } from '@/lib/utils';
+import { Send, X, RefreshCw, Sparkles } from 'lucide-react';
+import { generateUniqueId, getCurrentTimestamp, formatDateTime } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 
 interface CheckInHubProps {
-  entry: JournalEntry;
+  entry?: JournalEntry | null;
+  recentEntries?: JournalEntry[];
   onClose: () => void;
-  onSaveMessages: (messages: ChatMessage[]) => Promise<void>;
-  isGuest: boolean;
+  onSaveMessages?: (messages: ChatMessage[]) => Promise<void>;
+  isGuest?: boolean;
 }
 
-export function CheckInHub({ entry, onClose, onSaveMessages, isGuest }: CheckInHubProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(entry.messages || []);
+export function CheckInHub({
+  entry,
+  recentEntries = [],
+  onClose,
+  onSaveMessages,
+}: CheckInHubProps) {
+  const isGlobal = !entry;
+  const recentEntriesToUse = isGlobal ? (recentEntries || []).slice(0, 5) : [];
+  
+  // For specific entry, initialize with existing debrief messages if present
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (entry && entry.messages) {
+      const existingDebrief = entry.messages.filter((m) => m.mode === 'debrief');
+      if (existingDebrief.length > 0) return existingDebrief;
+    }
+    return [];
+  });
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initial debrief trigger
+  // Close on ESC key without losing background state
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Initial debrief / synthesis trigger
   useEffect(() => {
     let mounted = true;
+
     const triggerDebrief = async () => {
       setIsLoading(true);
       try {
+        let promptPayload = '';
+        let modePayload: 'debrief' | 'global_checkin' = 'debrief';
+        let titlePayload = 'Holistic Check-in';
+        let moodPayload = 'thoughtful';
+
+        if (isGlobal) {
+          modePayload = 'global_checkin';
+          if (recentEntriesToUse.length > 0) {
+            moodPayload = recentEntriesToUse[0]?.mood || 'thoughtful';
+            const excerpts = recentEntriesToUse
+              .map((e, idx) => {
+                const dateStr = formatDateTime(e.createdAt);
+                const moodStr = e.mood ? `Mood: ${e.mood}` : '';
+                const textPreview =
+                  (e.initialThought || e.messages.map((m) => m.content).join(' ')).trim().slice(0, 300) ||
+                  'Brief reflection';
+                return `[Entry ${idx + 1} | ${dateStr}${moodStr ? ` | ${moodStr}` : ''} | "${e.title || 'Untitled'}"]\n${textPreview}`;
+              })
+              .join('\n\n');
+
+            promptPayload = `Here are my recent journal reflections and emotional trajectory:\n\n${excerpts}\n\nPlease check in with me as my holistic confidant. Review my recent themes and emotional trajectory, welcome me back, summarize the mood pattern gently, and ask how I am feeling right now in this moment.`;
+          } else {
+            promptPayload =
+              'I am opening the Check-in Hub for the first time without any prior saved entries. Please welcome me warmly and ask how I am feeling right now in this moment.';
+          }
+        } else if (entry) {
+          modePayload = 'debrief';
+          titlePayload = entry.title || 'Reflection';
+          moodPayload = entry.mood || 'thoughtful';
+          promptPayload =
+            entry.initialThought ||
+            entry.messages.map((m) => m.content).join(' ') ||
+            'I just finished writing my journal entry.';
+        }
+
         const response = await fetch('/api/gemini/reflect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: entry.initialThought || 'I just finished writing my journal entry.',
-            mode: 'debrief',
+            prompt: promptPayload,
+            mode: modePayload,
             history: [],
-            title: entry.title,
-            mood: entry.mood,
+            title: titlePayload,
+            mood: moodPayload,
           }),
         });
 
         if (!response.ok) throw new Error('Failed to get reflection');
-        
+
         const data = await response.json();
         const newMessage: ChatMessage = {
           id: generateUniqueId('msg'),
           role: 'assistant',
           content: data.text,
           timestamp: getCurrentTimestamp(),
-          mode: 'debrief',
+          mode: modePayload,
         };
-        
+
         if (mounted) {
           const updatedMessages = [newMessage];
           setMessages(updatedMessages);
-          await onSaveMessages(updatedMessages);
+          if (onSaveMessages) {
+            await onSaveMessages(updatedMessages);
+          }
         }
       } catch (err) {
-        console.error('Error during initial debrief:', err);
+        console.error('Error during check-in hub debrief:', err);
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -61,7 +129,7 @@ export function CheckInHub({ entry, onClose, onSaveMessages, isGuest }: CheckInH
     if (messages.length === 0) {
       triggerDebrief();
     }
-    
+
     return () => {
       mounted = false;
     };
@@ -70,7 +138,7 @@ export function CheckInHub({ entry, onClose, onSaveMessages, isGuest }: CheckInH
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -87,38 +155,47 @@ export function CheckInHub({ entry, onClose, onSaveMessages, isGuest }: CheckInH
     setInput('');
     setIsLoading(true);
 
-    // Save immediately so state doesn't get lost
-    await onSaveMessages(newMessages);
+    if (onSaveMessages) {
+      await onSaveMessages(newMessages);
+    }
 
     try {
+      const modePayload = isGlobal ? 'global_checkin' : 'debrief';
+      const titlePayload = isGlobal ? 'Holistic Check-in' : entry?.title || 'Reflection';
+      const moodPayload = isGlobal
+        ? recentEntriesToUse[0]?.mood || 'thoughtful'
+        : entry?.mood || 'thoughtful';
+
       const response = await fetch('/api/gemini/reflect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userMsg.content,
-          mode: 'debrief',
+          mode: modePayload,
           history: newMessages.slice(0, -1),
-          title: entry.title,
-          mood: entry.mood,
+          title: titlePayload,
+          mood: moodPayload,
         }),
       });
 
       if (!response.ok) throw new Error('Failed to send message');
-      
+
       const data = await response.json();
       const assistantMsg: ChatMessage = {
         id: generateUniqueId('msg'),
         role: 'assistant',
         content: data.text,
         timestamp: getCurrentTimestamp(),
-        mode: 'debrief',
+        mode: modePayload,
       };
 
       const finalMessages = [...newMessages, assistantMsg];
       setMessages(finalMessages);
-      await onSaveMessages(finalMessages);
+      if (onSaveMessages) {
+        await onSaveMessages(finalMessages);
+      }
     } catch (err) {
-      console.error('Error sending message:', err);
+      console.error('Error sending message in check-in hub:', err);
     } finally {
       setIsLoading(false);
     }
@@ -129,90 +206,160 @@ export function CheckInHub({ entry, onClose, onSaveMessages, isGuest }: CheckInH
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-50 border-l border-zinc-200">
-      <div className="flex items-center justify-between p-4 border-b border-zinc-200 bg-white">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-900">Check-in Hub</h2>
-          <p className="text-xs text-zinc-500">Conversing with Frankly about &quot;{entry.title}&quot;</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-full transition-colors"
-          aria-label="Close Check-in Hub"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-zinc-900 text-zinc-50 rounded-br-none'
-                  : 'bg-white border border-zinc-200 text-zinc-800 rounded-bl-none shadow-2xs'
-              }`}
-            >
-              {msg.role === 'assistant' ? (
-                <div className="prose prose-sm prose-zinc max-w-none prose-p:leading-relaxed prose-a:text-blue-600">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-              )}
+    <div
+      id="checkin-hub-modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        id="checkin-hub-modal-card"
+        className="w-full max-w-2xl bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-2xl p-6 flex flex-col max-h-[88vh] text-neutral-100"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-neutral-800 shrink-0">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-200 shrink-0">
+              <Sparkles className="w-4 h-4 text-neutral-300" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">Check-in Hub</h2>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
+                  {isGlobal ? 'Holistic Debrief' : 'Entry Debrief'}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                {isGlobal
+                  ? recentEntriesToUse.length > 0
+                    ? `Synthesizing themes from your last ${recentEntriesToUse.length} reflection${recentEntriesToUse.length === 1 ? '' : 's'}`
+                    : 'Holistic confidant check-in'
+                  : `Conversing with Frankly about "${entry?.title || 'Reflection'}"`}
+              </p>
             </div>
           </div>
-        ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-zinc-200 rounded-2xl rounded-bl-none px-4 py-3 shadow-2xs flex items-center space-x-2">
-              <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-              <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-              <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce"></span>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="p-4 bg-white border-t border-zinc-200">
-        <div className="flex space-x-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
-          {["What felt hardest to write?", "I feel lighter now", "Help me reframe this"].map((reply) => (
-            <button
-              key={reply}
-              onClick={() => handleQuickReply(reply)}
-              className="whitespace-nowrap px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs rounded-full transition-colors border border-zinc-200"
-            >
-              {reply}
-            </button>
-          ))}
-        </div>
-        <div className="relative flex items-end">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="Reply to Frankly..."
-            className="w-full resize-none bg-zinc-100 rounded-2xl pl-4 pr-12 py-3 text-sm focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:bg-white transition-all border border-transparent focus:border-zinc-300"
-            rows={1}
-            style={{ minHeight: '44px', maxHeight: '120px' }}
-          />
           <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="absolute right-2 bottom-2 p-1.5 rounded-full bg-zinc-900 hover:bg-black text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-colors"
+            id="close-checkin-hub-btn"
+            onClick={onClose}
+            className="p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
+            aria-label="Close Check-in Hub"
+            title="Close (Esc)"
           >
-            {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Scrollable Conversation */}
+        <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+            >
+              <div className="flex items-center space-x-2 mb-1 px-1">
+                <span className="text-[10px] font-medium text-neutral-400">
+                  {msg.role === 'user' ? 'You' : 'Frankly'}
+                </span>
+                <span className="text-[10px] text-neutral-500">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+
+              <div
+                className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-4 text-sm transition-all duration-150 ${
+                  msg.role === 'user'
+                    ? 'bg-white text-neutral-900 rounded-tr-xs shadow-xs font-normal'
+                    : 'bg-neutral-800/90 border border-neutral-700/70 text-neutral-100 rounded-tl-xs shadow-xs'
+                }`}
+              >
+                {msg.role === 'assistant' ? (
+                  <div className="prose prose-invert prose-sm max-w-none text-neutral-100 leading-relaxed space-y-2 text-[13px]">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap leading-relaxed text-[13px]">{msg.content}</p>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {isLoading && (
+            <div className="flex items-start space-x-2">
+              <div className="p-3.5 rounded-2xl bg-neutral-800/90 border border-neutral-700/70 text-neutral-300 rounded-tl-xs flex items-center space-x-2.5 shadow-xs">
+                <RefreshCw className="w-3.5 h-3.5 text-neutral-300 animate-spin" />
+                <span className="text-xs font-medium text-neutral-300">Frankly is thinking...</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Quick Suggestion Pills */}
+        <div className="pt-2 pb-2 border-t border-neutral-800 shrink-0">
+          <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
+            {(isGlobal
+              ? [
+                  'How does my trajectory look?',
+                  'What pattern do you notice?',
+                  'I feel a bit overwhelmed today',
+                  'I feel centered right now',
+                ]
+              : [
+                  'What felt hardest to write?',
+                  'I feel lighter now',
+                  'Help me unpack this feeling',
+                  'What should I focus on next?',
+                ]
+            ).map((reply) => (
+              <button
+                key={reply}
+                id={`quick-reply-${reply.slice(0, 10).toLowerCase().replace(/\s+/g, '-')}`}
+                onClick={() => handleQuickReply(reply)}
+                className="whitespace-nowrap px-3 py-1 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 text-xs rounded-full transition-colors border border-neutral-700/80 shrink-0 cursor-pointer"
+              >
+                {reply}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input Composer */}
+        <div className="pt-2 shrink-0">
+          <div className="relative flex items-end">
+            <textarea
+              id="checkin-hub-input-textarea"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Speak candidly with Frankly... (Enter to send, Shift+Enter for newline)"
+              className="w-full resize-none bg-neutral-800/90 border border-neutral-700/90 focus:border-neutral-500 rounded-2xl pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-hidden focus:ring-1 focus:ring-neutral-500 transition-all leading-relaxed"
+              rows={2}
+            />
+            <button
+              id="send-checkin-message-btn"
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading}
+              aria-label="Send message to Frankly"
+              className="absolute right-2.5 bottom-2.5 p-1.5 rounded-full bg-white hover:bg-neutral-200 text-neutral-900 disabled:opacity-30 disabled:hover:bg-white transition-all cursor-pointer shadow-xs"
+            >
+              {isLoading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-neutral-500 px-1">
+            <span>Press Esc to dismiss modal without losing editor work</span>
+            <span>Multi-turn confidant debrief</span>
+          </div>
         </div>
       </div>
     </div>

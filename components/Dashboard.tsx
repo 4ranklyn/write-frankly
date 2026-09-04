@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
 import { JournalEntry, ChatMessage, EntryMood } from '@/types/journal';
 import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
-import { getCurrentTimestamp, generateUniqueId } from '@/lib/utils';
+import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly } from '@/lib/utils';
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
@@ -66,6 +66,7 @@ export function Dashboard({
   const [promptInput, setPromptInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCheckInHubOpen, setIsCheckInHubOpen] = useState(false);
+  const [checkInTargetEntry, setCheckInTargetEntry] = useState<JournalEntry | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -176,6 +177,20 @@ export function Dashboard({
   }, [user, isGuest, guestEntry]);
 
   const activeEntry = useMemo(() => entries.find((e) => e.id === selectedEntryId) || null, [entries, selectedEntryId]);
+
+  const editorWordCount = useMemo(() => {
+    const currentDraft = promptInput.trim();
+    const messagesText = (activeEntry?.messages || []).map((m) => m.content).join(' ');
+    const combinedText = [activeEntry?.initialThought || '', messagesText, currentDraft]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const words = combinedText ? combinedText.split(/\s+/).filter(Boolean).length : 0;
+    const characters = combinedText ? combinedText.length : 0;
+
+    return { words, characters };
+  }, [activeEntry, promptInput]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -418,15 +433,17 @@ export function Dashboard({
               <span className="font-semibold text-zinc-900 text-xs tracking-tight">WriteFrankly</span>
             </div>
           </div>
-          <button
-            id="sidebar-new-entry-btn"
-            onClick={handleCreateNewEntry}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-200 shadow-2xs cursor-pointer"
-            title="Create New Reflection"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Entry</span>
-          </button>
+          <div className="flex items-center space-x-1.5">
+            <button
+              id="sidebar-new-entry-btn"
+              onClick={handleCreateNewEntry}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-200 shadow-2xs cursor-pointer"
+              title="Create New Reflection"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Entry</span>
+            </button>
+          </div>
         </div>
 
         <div className="p-3 border-b border-zinc-200/50">
@@ -499,8 +516,8 @@ export function Dashboard({
                     <h3 className={`text-xs truncate pr-2 ${isSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-800 font-medium'}`}>
                       {entry.title || 'Untitled Reflection'}
                     </h3>
-                    <span className="text-[10px] text-zinc-400 shrink-0">
-                      {new Date(entry.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    <span id={`entry-timestamp-${entry.id}`} className="text-[10px] text-zinc-400 shrink-0 font-normal">
+                      {formatDateTime(entry.createdAt)}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500 truncate mt-1">
@@ -600,137 +617,140 @@ export function Dashboard({
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
         {activeEntry ? (
-          isCheckInHubOpen ? (
-            <CheckInHub
-              entry={activeEntry}
-              onClose={() => setIsCheckInHubOpen(false)}
-              onSaveMessages={async (newMessages) => {
-                const updated = { ...activeEntry, messages: newMessages, updatedAt: getCurrentTimestamp() };
-                if (isGuest) {
-                  setGuestEntry(updated);
-                  setEntries((prev) => prev.map((e) => (e.id === activeEntry.id ? updated : e)));
-                } else {
-                  if (user) await saveJournalEntry(user.uid, updated);
-                }
-              }}
-              isGuest={isGuest}
-            />
-          ) : (
-            <>
-              <div className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 shrink-0 min-w-0">
-              <div className="flex items-center space-x-2 sm:space-x-2.5 flex-1 min-w-0">
-                {onToggleSidebar && (
-                  <button
-                    id="mobile-sidebar-toggle-btn"
-                    onClick={onToggleSidebar}
-                    aria-label="Toggle history sidebar"
-                    className="md:hidden p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0"
-                    title="Toggle sidebar"
-                  >
-                    <PanelLeft className="w-4 h-4" />
-                  </button>
-                )}
-                <input
-                  id="entry-title-input"
-                  type="text"
-                  value={activeEntry.title === 'Untitled Reflection' ? '' : activeEntry.title}
-                  onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
-                  onBlur={flushPendingSync}
-                  placeholder="Untitled Reflection"
-                  className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[120px] max-w-md truncate"
-                />
-                <select
-                  id="entry-mood-select"
-                  value={activeEntry.mood}
-                  onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
-                  className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0"
-                >
-                  {MOODS.map((m) => (
-                    <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
-                  ))}
-                </select>
-                <LocationTag locality={locality} loading={locationLoading} onAttach={fetchCurrentLocation} />
-              </div>
-
-              <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
-                {isGuest && (
-                  <div
-                    title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
-                    className="text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center space-x-1.5 shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200"
-                  >
-                    <AlertCircle className="w-3 h-3 shrink-0" />
-                    <span>Guest Mode (Not Saved)</span>
-                  </div>
-                )}
-
-                {isGuest ? (
-                  <div className="flex items-center space-x-1 shrink-0">
+          <>
+            <div className="px-3 sm:px-6 py-2 sm:py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col gap-1.5 shrink-0 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 shrink-0 min-w-0">
+                <div className="flex items-center space-x-2 sm:space-x-2.5 flex-1 min-w-0">
+                  {onToggleSidebar && (
                     <button
+                      id="mobile-sidebar-toggle-btn"
+                      onClick={onToggleSidebar}
+                      aria-label="Toggle history sidebar"
+                      className="md:hidden p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0"
+                      title="Toggle sidebar"
+                    >
+                      <PanelLeft className="w-4 h-4" />
+                    </button>
+                  )}
+                  <input
+                    id="entry-title-input"
+                    type="text"
+                    value={activeEntry.title === 'Untitled Reflection' ? '' : activeEntry.title}
+                    onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
+                    onBlur={flushPendingSync}
+                    placeholder="Untitled Reflection"
+                    className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[120px] max-w-md truncate"
+                  />
+                  <select
+                    id="entry-mood-select"
+                    value={activeEntry.mood}
+                    onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
+                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0"
+                  >
+                    {MOODS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
+                    ))}
+                  </select>
+                  <LocationTag locality={locality} loading={locationLoading} onAttach={fetchCurrentLocation} />
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                  {isGuest && (
+                    <div
+                      title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
+                      className="text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center space-x-1.5 shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200"
+                    >
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>Guest Mode (Not Saved)</span>
+                    </div>
+                  )}
+
+                  {isGuest ? (
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <button
+                        onClick={handleExportMarkdown}
+                        title="Download as Markdown (.md)"
+                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Export .md</span>
+                      </button>
+                      <button
+                        onClick={handleCopyExportText}
+                        title="Copy Raw Text to Clipboard"
+                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Copy Text</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      id="export-entry-btn"
                       onClick={handleExportMarkdown}
-                      title="Download as Markdown (.md)"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                      title="Export reflection as Markdown"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Export .md</span>
+                      <span className="hidden sm:inline">Export</span>
                     </button>
-                    <button
-                      onClick={handleCopyExportText}
-                      title="Copy Raw Text to Clipboard"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Copy Text</span>
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    id="export-entry-btn"
-                    onClick={handleExportMarkdown}
-                    title="Export reflection as Markdown"
-                    className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Export</span>
-                  </button>
-                )}
+                  )}
 
-                <button
-                  onClick={() => {
-                    flushPendingSync();
-                    setIsCheckInHubOpen(true);
-                  }}
-                  className="px-2.5 py-1 rounded-full bg-zinc-900 text-zinc-50 hover:bg-zinc-800 transition-colors text-xs font-medium flex items-center space-x-1 shrink-0"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Check-in</span>
-                </button>
-
-                {deleteConfirmId === activeEntry.id ? (
-                  <div className="flex items-center space-x-1 shrink-0">
-                    <button
-                      id="confirm-delete-btn"
-                      onClick={() => handleDeleteEntry(activeEntry.id)}
-                      className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirmId(null)}
-                      className="px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-300 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
                   <button
-                    id="delete-entry-btn"
-                    onClick={() => setDeleteConfirmId(activeEntry.id)}
-                    title="Delete reflection"
-                    className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors shrink-0"
+                    id="toolbar-entry-debrief-btn"
+                    onClick={() => {
+                      flushPendingSync();
+                      setCheckInTargetEntry(activeEntry);
+                      setIsCheckInHubOpen(true);
+                    }}
+                    className="px-2.5 py-1 rounded-full bg-zinc-900 text-zinc-50 hover:bg-zinc-800 transition-colors text-xs font-medium flex items-center space-x-1 shrink-0 cursor-pointer shadow-2xs"
+                    title="Check-in Here"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
+                    <span className="hidden sm:inline">Check-in Here</span>
                   </button>
-                )}
+
+                  {deleteConfirmId === activeEntry.id ? (
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <button
+                        id="confirm-delete-btn"
+                        onClick={() => handleDeleteEntry(activeEntry.id)}
+                        className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-300 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      id="delete-entry-btn"
+                      onClick={() => setDeleteConfirmId(activeEntry.id)}
+                      title="Delete reflection"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Subtle Timestamp Indicator */}
+              <div
+                id="editor-timestamp-indicator"
+                className="flex items-center space-x-2 text-[11px] text-zinc-400 font-normal px-1"
+              >
+                <span id="created-at-indicator" title={formatDateTime(activeEntry.createdAt)}>
+                  Created at {formatDateTime(activeEntry.createdAt)}
+                </span>
+                <span>•</span>
+                <span id="last-saved-indicator" title={formatDateTime(activeEntry.updatedAt || activeEntry.createdAt)}>
+                  Last saved at {formatTimeOnly(activeEntry.updatedAt || activeEntry.createdAt)}
+                </span>
               </div>
             </div>
 
@@ -876,8 +896,15 @@ export function Dashboard({
             {/* Input Composer */}
             <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
               {activeEntry.isFinalized ? (
-                <div className="max-w-2xl mx-auto text-center py-4 text-zinc-500 text-sm font-medium">
-                  This journal session has been ended and saved securely.
+                <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-4 space-y-2 text-center">
+                  <p className="text-zinc-600 text-sm font-medium">
+                    This journal session has been ended and saved securely.
+                  </p>
+                  <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
+                    <span id="finalized-word-count">{editorWordCount.words.toLocaleString()} words</span>
+                    <span>•</span>
+                    <span id="finalized-char-count">{editorWordCount.characters.toLocaleString()} characters</span>
+                  </div>
                 </div>
               ) : (
                 <div className="max-w-2xl mx-auto flex flex-col space-y-3">
@@ -904,16 +931,36 @@ export function Dashboard({
                       onClick={() => handleSendPrompt()}
                       disabled={!promptInput.trim() || isGenerating}
                       aria-label="Send reflection to Gemini"
-                      className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs"
+                      className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs cursor-pointer"
                     >
                       {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                   
-                  <div className="flex justify-end">
+                  {/* Editor Footer: Soft Word & Character Count + End & Save */}
+                  <div id="editor-footer-bar" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-0.5">
+                    <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-500">
+                      <span id="editor-word-count" className="font-medium text-zinc-600">
+                        {editorWordCount.words.toLocaleString()} {editorWordCount.words === 1 ? 'word' : 'words'}
+                      </span>
+                      <span>•</span>
+                      <span id="editor-char-count">
+                        {editorWordCount.characters.toLocaleString()} {editorWordCount.characters === 1 ? 'character' : 'characters'}
+                      </span>
+                      {editorWordCount.words > 5000 && (
+                        <span
+                          id="word-count-limit-indicator"
+                          className="inline-flex items-center space-x-1 text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full text-[11px] font-medium animate-in fade-in duration-200"
+                        >
+                          <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                          <span>Approaching optimal reflection length.</span>
+                        </span>
+                      )}
+                    </div>
                     <button
+                      id="end-and-save-btn"
                       onClick={() => handleUpdateMetadata({ isFinalized: true })}
-                      className="px-4 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-medium transition-colors shadow-2xs"
+                      className="px-4 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer self-end sm:self-auto"
                     >
                       End & Save Journal
                     </button>
@@ -922,29 +969,100 @@ export function Dashboard({
               )}
             </div>
           </>
-          )
         ) : (
-          <div className="flex-1 flex items-center justify-center p-6 text-center bg-[#fafafa]">
-            <div className="max-w-sm">
-              <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center mx-auto mb-3.5 border border-zinc-200/70">
-                <Compass className="w-5 h-5" />
+          <div className="flex-1 flex flex-col bg-[#fafafa]">
+            {/* Top Toolbar in Empty State */}
+            <div className="h-14 px-4 sm:px-6 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2">
+                {onToggleSidebar && (
+                  <button
+                    id="empty-mobile-sidebar-toggle-btn"
+                    onClick={onToggleSidebar}
+                    aria-label="Toggle history sidebar"
+                    className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors"
+                  >
+                    <PanelLeft className="w-4 h-4" />
+                  </button>
+                )}
+                <span className="text-xs font-medium text-zinc-500">Workspace</span>
               </div>
-              <h2 className="text-base font-semibold text-zinc-900">Welcome to WriteFrankly</h2>
-              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
-                Select an entry from your journal history or start a new entry.
-              </p>
               <button
-                id="empty-state-new-entry-btn"
-                onClick={handleCreateNewEntry}
-                className="mt-5 inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium shadow-2xs transition-all duration-200 cursor-pointer"
+                id="empty-checkin-hub-btn"
+                onClick={() => {
+                  flushPendingSync();
+                  setCheckInTargetEntry(null);
+                  setIsCheckInHubOpen(true);
+                }}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
+                title="Open Holistic Check-in Hub"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Create New Entry</span>
+                <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Check-in Hub</span>
               </button>
+            </div>
+
+            <div className="flex-1 flex items-center justify-center p-6 text-center">
+              <div className="max-w-sm">
+                <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center mx-auto mb-3.5 border border-zinc-200/70">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <h2 className="text-base font-semibold text-zinc-900">Welcome to WriteFrankly</h2>
+                <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                  Select an entry from your journal history, start a new reflection, or open the Check-in Hub for a holistic debrief.
+                </p>
+                <div className="mt-5 flex items-center justify-center space-x-2.5">
+                  <button
+                    id="empty-state-new-entry-btn"
+                    onClick={handleCreateNewEntry}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium shadow-2xs transition-all duration-200 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create New Entry</span>
+                  </button>
+                  <button
+                    id="empty-state-checkin-btn"
+                    onClick={() => {
+                      flushPendingSync();
+                      setCheckInTargetEntry(null);
+                      setIsCheckInHubOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-full bg-white hover:bg-zinc-50 active:bg-zinc-100 text-zinc-800 text-xs font-medium border border-zinc-200/80 shadow-2xs transition-all duration-200 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
+                    <span>Check-in Hub</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* Independent Global Check-in Hub Modal */}
+      {isCheckInHubOpen && (
+        <CheckInHub
+          entry={checkInTargetEntry}
+          recentEntries={entries}
+          onClose={() => setIsCheckInHubOpen(false)}
+          onSaveMessages={async (newMessages) => {
+            if (checkInTargetEntry) {
+              const updated = {
+                ...checkInTargetEntry,
+                messages: newMessages,
+                updatedAt: getCurrentTimestamp(),
+              };
+              if (isGuest) {
+                setGuestEntry(updated);
+                setEntries((prev) => prev.map((e) => (e.id === checkInTargetEntry.id ? updated : e)));
+              } else {
+                if (user) await saveJournalEntry(user.uid, updated);
+                setEntries((prev) => prev.map((e) => (e.id === checkInTargetEntry.id ? updated : e)));
+              }
+            }
+          }}
+          isGuest={isGuest}
+        />
+      )}
     </div>
   );
 }

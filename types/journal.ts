@@ -12,7 +12,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-  mode?: 'general' | 'reflect' | 'summarize' | 'action_items' | 'reframe' | 'debrief';
+  mode?: 'general' | 'reflect' | 'summarize' | 'action_items' | 'reframe' | 'debrief' | 'global_checkin';
 }
 
 export interface JournalEntry {

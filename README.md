@@ -1,6 +1,6 @@
 # WriteFrankly — Private Journaling Companion
 
-WriteFrankly is a private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence. Built on Next.js 15, Cloud Firestore, and Gemini 3.7 Flash API, it provides a grounded, secure space where users can write journal entries, cut through rationalizations, and gain unvarnished clarity.
+WriteFrankly is a private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence. Built on Next.js 15, Cloud Firestore, and Gemini 3.8 Flash API with optimized low-latency thinking levels, it provides a grounded, secure space where users can write journal entries, cut through rationalizations, and gain unvarnished clarity.
 
 ---
 

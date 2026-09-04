@@ -8,9 +8,10 @@ import Image from 'next/image';
 interface NavbarProps {
   onNewEntry: () => void;
   onToggleSidebar?: () => void;
+  onOpenCheckInHub?: () => void;
 }
 
-export function Navbar({ onNewEntry, onToggleSidebar }: NavbarProps) {
+export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: NavbarProps) {
   const { user, signOutUser } = useAuth();
 
   return (
@@ -45,6 +46,18 @@ export function Navbar({ onNewEntry, onToggleSidebar }: NavbarProps) {
       <div className="flex items-center space-x-2.5 sm:space-x-3">
         {user && (
           <>
+            {onOpenCheckInHub && (
+              <button
+                id="nav-checkin-hub-btn"
+                onClick={onOpenCheckInHub}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
+                title="Open Holistic Check-in Hub"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Check-in Hub</span>
+              </button>
+            )}
+
             <button
               id="nav-new-entry-btn"
               onClick={onNewEntry}
