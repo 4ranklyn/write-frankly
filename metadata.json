@@ -1,6 +1,6 @@
 {
   "name": "Write Frankly",
-  "description": "A private, unvarnished journaling companion for thinking out loud without performance, filtering, or fear of consequence.",
+  "description": "A privacy-first personal journal combining client-side zero-knowledge encryption with Frankly, an empathetic on-device AI debrief companion.",
   "requestFramePermissions": [
     "geolocation"
   ],

@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { Sparkles, ShieldCheck, Database, MessageSquareText } from 'lucide-react';
+import { Sparkles, ShieldCheck, Database, MessageSquareText, Lock, HelpCircle } from 'lucide-react';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 export function LandingPage() {
@@ -157,11 +158,84 @@ export function LandingPage() {
             </p>
           </div>
         </div>
+
+        {/* Semantic FAQ Section for AEO & GEO */}
+        <section id="faq" aria-labelledby="faq-heading" className="max-w-3xl mx-auto py-16 text-left border-t border-zinc-200/60 mt-16 sm:mt-24">
+          <div className="flex items-center space-x-2 mb-3">
+            <HelpCircle className="w-4 h-4 text-zinc-700" />
+            <span className="text-xs font-semibold tracking-wide uppercase text-zinc-500">
+              Frequently Asked Questions
+            </span>
+          </div>
+          <h2 id="faq-heading" className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-950 mb-8">
+            Privacy, Architecture &amp; The Frankly Companion
+          </h2>
+
+          <div className="space-y-6">
+            <article id="faq-item-privacy" className="p-5 rounded-2xl bg-white border border-zinc-200/80 shadow-2xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-800 shrink-0 mt-0.5 border border-zinc-200/50">
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-900 mb-2">
+                    How does Write-Frankly guarantee privacy?
+                  </h3>
+                  <p className="text-xs text-zinc-600 leading-relaxed">
+                    Write-Frankly guarantees privacy through <strong>Zero-Knowledge Encryption</strong> and <strong>Client-Side Key Derivation</strong>. All personal journal entries and reflection archives are encrypted directly in your browser using authenticated <strong>AES-GCM (256-bit)</strong> before persistence to Cloud Firestore. Plaintext content is never transmitted across the wire or viewable by server administrators.
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article id="faq-item-guest-mode" className="p-5 rounded-2xl bg-white border border-zinc-200/80 shadow-2xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-800 shrink-0 mt-0.5 border border-zinc-200/50">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-900 mb-2">
+                    Can I try Frankly without an account?
+                  </h3>
+                  <p className="text-xs text-zinc-600 leading-relaxed">
+                    Yes. Write-Frankly features a 1-entry <strong>Ephemeral In-Memory Processing</strong> guest mode requiring zero authentication, credentials, or Google account association. You can think out loud, receive an <strong>Empathetic AI Debrief</strong>, and directly export your session payload before closing the tab.
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article id="faq-item-ai-models" className="p-5 rounded-2xl bg-white border border-zinc-200/80 shadow-2xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-800 shrink-0 mt-0.5 border border-zinc-200/50">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-900 mb-2">
+                    What AI models power the Frankly companion?
+                  </h3>
+                  <p className="text-xs text-zinc-600 leading-relaxed">
+                    Frankly is powered by the Google Gemini API (including <strong>gemini-3.6-flash</strong>, <strong>gemini-3.1-flash-lite</strong>, and <strong>gemini-3.7-flash</strong> via an automated resilient fallback protocol). Prompts are processed strictly on server-side API proxies with <strong>Automated PII Scrubbing</strong>. Your reflections are never stored or retained for model training.
+                  </p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200/50 py-5 text-center text-xs text-zinc-400">
-        <p>WriteFrankly &bull; A private, unvarnished journaling companion</p>
+      <footer className="border-t border-zinc-200/50 py-6 px-6 text-center text-xs text-zinc-500">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p id="footer-tagline">Write-Frankly &bull; Zero-Knowledge Private Journal with AI Debrief</p>
+          <div className="flex items-center space-x-4 text-xs text-zinc-500">
+            <a href="#faq" className="hover:text-zinc-900 transition-colors">
+              FAQ
+            </a>
+            <Link href="/privacy" className="hover:text-zinc-900 transition-colors">
+              Privacy Policy
+            </Link>
+          </div>
+        </div>
       </footer>
     </div>
   );
