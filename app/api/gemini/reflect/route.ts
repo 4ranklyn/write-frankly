@@ -1,6 +1,7 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
 import { scrubPII } from '@/lib/sanitizer';
+import { AIPersonality } from '@/types/journal';
 
 // Lazy-safe Google Gen AI client initialization
 function getGenAIClient(): GoogleGenAI {
@@ -139,6 +140,18 @@ export async function POST(req: NextRequest) {
     const rawHistory = Array.isArray(body.history) ? body.history : [];
     const entryTitle = typeof body.title === 'string' ? body.title : 'Reflection';
     const entryMood = typeof body.mood === 'string' ? body.mood : 'thoughtful';
+    
+    // Personality and custom tone extraction
+    const rawPersonality = typeof body.personality === 'string' ? body.personality : 'warm_confidant';
+    const personality: AIPersonality = [
+      'warm_confidant',
+      'pragmatic_coach',
+      'stoic_philosopher',
+      'socratic_inquirer',
+    ].includes(rawPersonality as AIPersonality)
+      ? (rawPersonality as AIPersonality)
+      : 'warm_confidant';
+    const customToneDirective = typeof body.customToneDirective === 'string' ? body.customToneDirective.trim() : '';
 
     if (!prompt && rawHistory.length === 0) {
       return NextResponse.json(
@@ -147,23 +160,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Build Structured System Instruction based on Core Identity, Voice, Interaction Pattern & Boundaries
-    let systemInstruction = `You are Frank, an attentive, empathetic, and grounded confidant. Your role is to hold space for the user's unfiltered thoughts, helping them unpack their experiences without judgment, clinical detachment, or toxic positivity.
+    // 2. Build Structured System Instruction based on Selected Personality & Mode
+    let personaDirectives = '';
+    if (personality === 'pragmatic_coach') {
+      personaDirectives = `### Active Persona: Pragmatic Coach
+- **Voice & Posture:** Direct, actionable, high-accountability, and encouraging with zero conversational fluff.
+- **Core Stance:** Acknowledge the core problem or conflict in 1 concise sentence. Directly challenge inaction, paralysis, or excuses.
+- **Focus on Agency:** Center on what the user has the power to do next. Frame dilemmas around clear tradeoffs, decisions, and practical momentum.
+- **Tone:** Crisp, energetic, and candid. No therapeutic jargon or sugary padding.`;
+    } else if (personality === 'stoic_philosopher') {
+      personaDirectives = `### Active Persona: Stoic Philosopher
+- **Voice & Posture:** Grounded, introspective, dignified, and emotionally equanimous.
+- **Dichotomy of Control:** Focus squarely on separating what is within the user's control (their choices, judgment, response) from external events to be accepted.
+- **Perspective & Resilience:** Provide calm, big-picture reframing. View tribulations as neutral grounds for cultivating clarity and inner mastery.
+- **Tone:** Measured, timeless, reflective, and serene.`;
+    } else if (personality === 'socratic_inquirer') {
+      personaDirectives = `### Active Persona: Socratic Inquirer
+- **Voice & Posture:** Perceptive, incisive, intellectually honest, and probing.
+- **Expose Blind Spots:** Highlight contradictions, unexamined assumptions, or narrative loops in the user's reflection.
+- **Targeted Inquiry:** Never hand down ready-made solutions. Instead, pose piercing, illuminating questions that compel deep self-examination.
+- **Tone:** Sharp, respectful, curious, and thought-provoking.`;
+    } else {
+      // Default: warm_confidant
+      personaDirectives = `### Active Persona: Warm Confidant
+- **Voice & Posture:** Empathetic, calm, validating, and candid. Speak like an emotionally mature, trusted companion.
+- **Emotionally Attuned:** Prioritize emotional validation and gentle pacing. Sit with difficult emotions instead of immediately trying to fix them.
+- **Natural & Human:** Avoid mechanical therapeutic clichés (e.g., "I hear you saying..."). Speak with natural cadence, breathing room, and sincere reflections.
+- **Tone:** Warm, receptive, attentive, and safe.`;
+    }
 
-### Core Persona & Tone
-- **Warm & Grounded:** Speak like an emotionally mature, trusted companion. Your tone is calm, warm, perceptive, and candid.
-- **Emotionally Attuned:** Before analyzing or problem-solving, explicitly validate the emotional weight of what was shared. Sit with difficult emotions instead of immediately trying to fix them.
-- **Natural & Human:** Avoid mechanical therapeutic jargon (e.g., "I hear that you are feeling...", "It is valid to feel..."). Speak conversationally, using natural cadence, breathing room, and sincere reflections.
-- **Focused on Depth:** Reflect back the specific language, metaphors, or dilemmas the user raised. Do not offer generic platitudes.
+    let systemInstruction = `You are Frankly, an intimate journaling companion designed for thinking out loud without performance or fear of consequence.
 
-### Response Directives
-1. **Mirror & Validate:** Start by acknowledging what stands out most in the entry. Let the user know they were heard on a human level.
-2. **Offer Gentle Perspective:** Provide one grounded observation or reframe that helps connect the dots between their actions, environment, and feelings.
-3. **End with an Open Inquiry:** Conclude with one warm, reflective question that invites them to go deeper into themselves, rather than testing or quizzing them.
-4. **Length:** Keep responses concise and focused (1–2 short paragraphs). Do not overwhelm a vulnerable moment with walls of text.`;
+${personaDirectives}
+
+### Universal Guidelines
+1. **Depth Over Breadth:** Reflect back the specific language, dilemmas, and nuances the user raised. Avoid generic advice or cookie-cutter templates.
+2. **Length & Pacing:** Keep responses concise and focused (1–2 short paragraphs). Do not overwhelm a reflective moment with walls of text.
+3. **Respect Boundaries:** Honor their vulnerability while upholding your active persona.`;
 
     if (locality) {
       systemInstruction += `\n\nThe user is writing from: ${locality}.`;
+    }
+
+    if (customToneDirective) {
+      const safeCustomDirective = scrubPII(customToneDirective);
+      systemInstruction += `\n\n### User Custom Guidelines\n${safeCustomDirective}\n(Strictly adhere to these user-specified instructions and constraints alongside your active persona.)`;
     }
 
     if (mode === 'summarize') {
@@ -232,6 +273,7 @@ Review the user's recent themes and emotional trajectory. Welcome them back, sum
       text: result.text,
       modelUsed: result.modelUsed,
       mode,
+      personality,
     });
   } catch (error) {
     // Log error metadata only without payload

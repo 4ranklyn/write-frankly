@@ -3,13 +3,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
-import { JournalEntry, ChatMessage, EntryMood } from '@/types/journal';
-import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
+import { JournalEntry, ChatMessage, EntryMood, UserPreferences, AIPersonality } from '@/types/journal';
+import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry, getStoredUserPreferences, loadUserPreferences, saveUserPreferences } from '@/lib/journal-service';
 import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly } from '@/lib/utils';
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
-  LogOut, PanelLeft,
+  LogOut, PanelLeft, Sliders,
 } from 'lucide-react';
 import Image from 'next/image';
 import Markdown from 'react-markdown';
@@ -17,6 +17,7 @@ import { useLocation } from '@/hooks/useLocation';
 import { useAutoSync } from '@/hooks/useAutoSync';
 import { LocationTag } from '@/components/LocationTag';
 import { CheckInHub } from '@/components/CheckInHub';
+import { PersonalitySettings } from '@/components/PersonalitySettings';
 
 const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
@@ -71,6 +72,40 @@ export function Dashboard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const [preferences, setPreferences] = useState<UserPreferences>(() =>
+    getStoredUserPreferences(user?.uid)
+  );
+  const [isPersonalitySettingsOpen, setIsPersonalitySettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (user?.uid) {
+      loadUserPreferences(user.uid).then((p) => {
+        if (p) setPreferences(p);
+      });
+    }
+  }, [user?.uid]);
+
+  const handleUpdatePreferences = async (newPrefs: UserPreferences) => {
+    setPreferences(newPrefs);
+    if (user?.uid) {
+      await saveUserPreferences(user.uid, newPrefs);
+    }
+  };
+
+  const getPersonaLabel = (id?: AIPersonality): string => {
+    switch (id) {
+      case 'pragmatic_coach':
+        return 'Pragmatic Coach';
+      case 'stoic_philosopher':
+        return 'Stoic Philosopher';
+      case 'socratic_inquirer':
+        return 'Socratic Inquirer';
+      case 'warm_confidant':
+      default:
+        return 'Warm Confidant';
+    }
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -301,6 +336,8 @@ export function Dashboard({
           mood: activeEntry.mood,
           locality: locality || undefined,
           history: updatedMessages,
+          personality: preferences.personality,
+          customToneDirective: preferences.customToneDirective,
         }),
       });
 
@@ -547,6 +584,20 @@ export function Dashboard({
 
         {/* Left lower side of app UI: User Profile & Controls */}
         <div id="sidebar-user-footer" className="p-3 border-t border-zinc-200/60 bg-zinc-100/60 backdrop-blur-xs">
+          <button
+            id="sidebar-personality-settings-btn"
+            type="button"
+            onClick={() => setIsPersonalitySettingsOpen(true)}
+            className="w-full mb-2.5 px-2.5 py-1.5 rounded-xl border border-zinc-200/80 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium flex items-center justify-between transition-colors shadow-2xs cursor-pointer"
+            title="Customize Frankly's Tone & Personality"
+          >
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-3.5 h-3.5 text-zinc-700" />
+              <span>Tone: <strong className="font-semibold text-zinc-900">{getPersonaLabel(preferences.personality)}</strong></span>
+            </div>
+            <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+          </button>
+
           {user && !isGuest ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2.5 min-w-0">
@@ -1044,6 +1095,9 @@ export function Dashboard({
           entry={checkInTargetEntry}
           recentEntries={entries}
           onClose={() => setIsCheckInHubOpen(false)}
+          preferences={preferences}
+          onUpdatePreferences={handleUpdatePreferences}
+          userId={user?.uid}
           onSaveMessages={async (newMessages) => {
             if (checkInTargetEntry) {
               const updated = {
@@ -1061,6 +1115,16 @@ export function Dashboard({
             }
           }}
           isGuest={isGuest}
+        />
+      )}
+
+      {/* Customizable AI Personality Settings Modal */}
+      {isPersonalitySettingsOpen && (
+        <PersonalitySettings
+          isOpen={isPersonalitySettingsOpen}
+          onClose={() => setIsPersonalitySettingsOpen(false)}
+          currentPreferences={preferences}
+          onSave={handleUpdatePreferences}
         />
       )}
     </div>

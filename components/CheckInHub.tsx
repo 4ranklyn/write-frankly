@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { JournalEntry, ChatMessage } from '@/types/journal';
-import { Send, X, RefreshCw, Sparkles } from 'lucide-react';
+import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
+import { Send, X, RefreshCw, Sparkles, Sliders } from 'lucide-react';
 import { generateUniqueId, getCurrentTimestamp, formatDateTime } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
+import { PersonalitySettings } from '@/components/PersonalitySettings';
+import { getStoredUserPreferences, saveUserPreferences } from '@/lib/journal-service';
 
 interface CheckInHubProps {
   entry?: JournalEntry | null;
@@ -12,6 +14,9 @@ interface CheckInHubProps {
   onClose: () => void;
   onSaveMessages?: (messages: ChatMessage[]) => Promise<void>;
   isGuest?: boolean;
+  preferences?: UserPreferences;
+  onUpdatePreferences?: (preferences: UserPreferences) => Promise<void> | void;
+  userId?: string;
 }
 
 export function CheckInHub({
@@ -19,9 +24,17 @@ export function CheckInHub({
   recentEntries = [],
   onClose,
   onSaveMessages,
+  preferences,
+  onUpdatePreferences,
+  userId,
 }: CheckInHubProps) {
   const isGlobal = !entry;
   const recentEntriesToUse = isGlobal ? (recentEntries || []).slice(0, 5) : [];
+
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>(() => {
+    return preferences || getStoredUserPreferences(userId);
+  });
+  const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
   
   // For specific entry, initialize with existing debrief messages if present
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -31,6 +44,20 @@ export function CheckInHub({
     }
     return [];
   });
+
+  const getPersonaLabel = (id?: AIPersonality): string => {
+    switch (id) {
+      case 'pragmatic_coach':
+        return 'Pragmatic Coach';
+      case 'stoic_philosopher':
+        return 'Stoic Philosopher';
+      case 'socratic_inquirer':
+        return 'Socratic Inquirer';
+      case 'warm_confidant':
+      default:
+        return 'Warm Confidant';
+    }
+  };
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +125,8 @@ export function CheckInHub({
             history: [],
             title: titlePayload,
             mood: moodPayload,
+            personality: userPreferences.personality,
+            customToneDirective: userPreferences.customToneDirective,
           }),
         });
 
@@ -175,6 +204,8 @@ export function CheckInHub({
           history: newMessages.slice(0, -1),
           title: titlePayload,
           mood: moodPayload,
+          personality: userPreferences.personality,
+          customToneDirective: userPreferences.customToneDirective,
         }),
       });
 
@@ -224,11 +255,22 @@ export function CheckInHub({
               <Sparkles className="w-4 h-4 text-neutral-300" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                 <h2 className="text-base font-semibold text-neutral-100 tracking-tight">Check-in Hub</h2>
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
                   {isGlobal ? 'Holistic Debrief' : 'Entry Debrief'}
                 </span>
+                <button
+                  id="checkin-hub-persona-indicator-btn"
+                  type="button"
+                  onClick={() => setIsPersonalityModalOpen(true)}
+                  className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-amber-300 hover:text-amber-200 border border-neutral-700 hover:border-neutral-600 text-[10px] font-medium transition-colors cursor-pointer"
+                  title="Click to customize Frankly's tone, warmth, and debriefing style"
+                >
+                  <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                  <span>Speaking with Frankly ({getPersonaLabel(userPreferences.personality)})</span>
+                  <Sliders className="w-2.5 h-2.5 ml-0.5 text-neutral-400" />
+                </button>
               </div>
               <p className="text-xs text-neutral-400 mt-0.5">
                 {isGlobal
@@ -362,6 +404,23 @@ export function CheckInHub({
           </div>
         </div>
       </div>
+
+      {/* Personality & Tone Settings Modal */}
+      {isPersonalityModalOpen && (
+        <PersonalitySettings
+          isOpen={isPersonalityModalOpen}
+          onClose={() => setIsPersonalityModalOpen(false)}
+          currentPreferences={userPreferences}
+          onSave={async (updated) => {
+            setUserPreferences(updated);
+            if (onUpdatePreferences) {
+              await onUpdatePreferences(updated);
+            } else if (userId) {
+              await saveUserPreferences(userId, updated);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

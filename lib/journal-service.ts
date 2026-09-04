@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   deleteDoc,
   updateDoc,
   onSnapshot,
@@ -10,7 +11,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { JournalEntry, ChatMessage } from '@/types/journal';
+import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
 import { sanitizePayload } from './sanitizer';
 import { deriveKeyFromPassphrase, encryptText, decryptText, EncryptedPayload } from './crypto';
 
@@ -282,5 +283,115 @@ export async function deleteJournalEntry(
     await deleteDoc(entryRef);
   } catch (err) {
     console.warn('Firestore deleteDoc notice (removed locally):', err);
+  }
+}
+
+const VALID_PERSONALITIES: AIPersonality[] = [
+  'warm_confidant',
+  'pragmatic_coach',
+  'stoic_philosopher',
+  'socratic_inquirer',
+];
+
+export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  personality: 'warm_confidant',
+  customToneDirective: '',
+  emailNotifications: false,
+};
+
+/**
+ * Retrieves user preferences from localStorage (fast sync) and falls back to defaults.
+ */
+export function getStoredUserPreferences(userId?: string): UserPreferences {
+  if (typeof window === 'undefined') return { ...DEFAULT_USER_PREFERENCES };
+  try {
+    const key = userId ? `frankly_prefs_${userId}` : 'frankly_prefs_global';
+    const raw = localStorage.getItem(key) || localStorage.getItem('frankly_prefs_global');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const personality: AIPersonality = VALID_PERSONALITIES.includes(parsed.personality)
+        ? parsed.personality
+        : 'warm_confidant';
+      return {
+        personality,
+        customToneDirective: typeof parsed.customToneDirective === 'string' ? parsed.customToneDirective : '',
+        emailNotifications: Boolean(parsed.emailNotifications),
+        emailAddress: typeof parsed.emailAddress === 'string' ? parsed.emailAddress : '',
+        reminderTime: typeof parsed.reminderTime === 'string' ? parsed.reminderTime : '',
+      };
+    }
+  } catch (err) {
+    console.warn('Error reading stored user preferences:', err);
+  }
+  return { ...DEFAULT_USER_PREFERENCES };
+}
+
+/**
+ * Loads preferences from Firestore if available, otherwise returns local/default.
+ */
+export async function loadUserPreferences(userId: string): Promise<UserPreferences> {
+  const local = getStoredUserPreferences(userId);
+  if (!userId || userId.startsWith('guest_')) {
+    return local;
+  }
+
+  try {
+    const settingsRef = doc(db, 'users', userId, 'settings', 'preferences');
+    const snap = await getDoc(settingsRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const personality: AIPersonality = VALID_PERSONALITIES.includes(data.personality)
+        ? data.personality
+        : local.personality;
+      const remotePrefs: UserPreferences = {
+        personality,
+        customToneDirective: typeof data.customToneDirective === 'string' ? data.customToneDirective : local.customToneDirective,
+        emailNotifications: data.emailNotifications ?? local.emailNotifications,
+        emailAddress: data.emailAddress ?? local.emailAddress,
+        reminderTime: data.reminderTime ?? local.reminderTime,
+      };
+      // Keep local mirrors in sync
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`frankly_prefs_${userId}`, JSON.stringify(remotePrefs));
+        localStorage.setItem('frankly_prefs_global', JSON.stringify(remotePrefs));
+      }
+      return remotePrefs;
+    }
+  } catch (err) {
+    console.warn('Firestore loadUserPreferences notice (using local):', err);
+  }
+  return local;
+}
+
+/**
+ * Saves user preferences to both localStorage and Firestore.
+ */
+export async function saveUserPreferences(userId: string, prefs: UserPreferences): Promise<void> {
+  const sanitized = sanitizePayload({
+    ...prefs,
+    personality: VALID_PERSONALITIES.includes(prefs.personality) ? prefs.personality : 'warm_confidant',
+    customToneDirective: prefs.customToneDirective || '',
+  }) as UserPreferences;
+
+  if (typeof window !== 'undefined') {
+    try {
+      if (userId) {
+        localStorage.setItem(`frankly_prefs_${userId}`, JSON.stringify(sanitized));
+      }
+      localStorage.setItem('frankly_prefs_global', JSON.stringify(sanitized));
+    } catch (e) {
+      console.warn('Local preference storage error:', e);
+    }
+  }
+
+  if (!userId || userId.startsWith('guest_')) {
+    return;
+  }
+
+  try {
+    const settingsRef = doc(db, 'users', userId, 'settings', 'preferences');
+    await setDoc(settingsRef, sanitized, { merge: true });
+  } catch (err) {
+    console.warn('Firestore saveUserPreferences notice (persisted locally):', err);
   }
 }

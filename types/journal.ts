@@ -1,3 +1,13 @@
+export type AIPersonality = 'warm_confidant' | 'pragmatic_coach' | 'stoic_philosopher' | 'socratic_inquirer';
+
+export interface UserPreferences {
+  personality: AIPersonality;
+  customToneDirective?: string; // Optional user-written instruction
+  emailNotifications?: boolean;
+  emailAddress?: string;
+  reminderTime?: string;
+}
+
 export type EntryMood =
   | 'thoughtful'
   | 'productive'
