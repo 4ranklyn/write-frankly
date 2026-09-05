@@ -1711,6 +1711,7 @@ export function Dashboard({
               </div>
             </div>
           </div>
+        </div>
       )}
 
       {/* Independent Global Check-in Hub Modal */}

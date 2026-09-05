@@ -146,22 +146,32 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             __html: `
               (function() {
                 try {
-                  if (typeof window === 'undefined') return;
-                  var _fetch = window.fetch ? window.fetch.bind(window) : null;
+                  var g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+                  if (!g) return;
+                  var _fetch = g.fetch ? g.fetch.bind(g) : null;
                   function makeWritable(obj) {
                     if (!obj) return;
                     try {
                       Object.defineProperty(obj, 'fetch', {
-                        get: function() { return _fetch; },
-                        set: function(val) { _fetch = val; },
+                        value: _fetch,
+                        writable: true,
                         configurable: true,
                         enumerable: true
                       });
-                    } catch (e) {}
+                    } catch (e) {
+                      try {
+                        Object.defineProperty(obj, 'fetch', {
+                          get: function() { return _fetch; },
+                          set: function(val) { _fetch = val; },
+                          configurable: true,
+                          enumerable: true
+                        });
+                      } catch (e2) {}
+                    }
                   }
-                  makeWritable(window);
+                  makeWritable(g);
                   try {
-                    var proto = Object.getPrototypeOf(window);
+                    var proto = Object.getPrototypeOf(g);
                     while (proto && proto !== Object.prototype) {
                       makeWritable(proto);
                       proto = Object.getPrototypeOf(proto);
