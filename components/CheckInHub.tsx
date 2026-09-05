@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
-import { Send, X, RefreshCw, Sparkles, Sliders, MapPin } from 'lucide-react';
+import { JournalEntry, ChatMessage, UserPreferences, AIPersonality, getPersonaLabel } from '@/types/journal';
+import { Send, X, RefreshCw, Sparkles, Sliders, MapPin, ClipboardCheck, Check } from 'lucide-react';
 import { generateUniqueId, getCurrentTimestamp, formatDateTime } from '@/lib/utils';
+import { sanitizePayload } from '@/lib/sanitizer';
 import ReactMarkdown from 'react-markdown';
 import { PersonalitySettings } from '@/components/PersonalitySettings';
 import { getStoredUserPreferences, saveUserPreferences } from '@/lib/journal-service';
@@ -17,6 +18,7 @@ interface CheckInHubProps {
   preferences?: UserPreferences;
   onUpdatePreferences?: (preferences: UserPreferences) => Promise<void> | void;
   userId?: string;
+  onSaveSuccess?: (message?: string) => void;
 }
 
 export function CheckInHub({
@@ -27,6 +29,7 @@ export function CheckInHub({
   preferences,
   onUpdatePreferences,
   userId,
+  onSaveSuccess,
 }: CheckInHubProps) {
   const isGlobal = !entry;
   const recentEntriesToUse = isGlobal ? (recentEntries || []).slice(0, 5) : [];
@@ -45,41 +48,66 @@ export function CheckInHub({
     return [];
   });
 
-  const getPersonaLabel = (id?: AIPersonality): string => {
-    switch (id) {
-      case 'pragmatic_coach':
-        return 'Pragmatic Coach';
-      case 'stoic_philosopher':
-        return 'Stoic Philosopher';
-      case 'socratic_inquirer':
-        return 'Socratic Inquirer';
-      case 'warm_confidant':
-      default:
-        return 'Warm Confidant';
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [debriefPhase, setDebriefPhase] = useState<'idle' | 'reading' | 'synthesizing' | 'streaming'>('idle');
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUp = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      isUserScrolledUp.current = scrollHeight - (scrollTop + clientHeight) > 80;
     }
   };
 
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isUserScrolledUp.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, debriefPhase]);
 
   // Close on ESC key without losing background state
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
   }, [onClose]);
 
-  // Initial debrief / synthesis trigger
+  // Initial debrief / synthesis trigger with streaming and progressive micro-feedback
   useEffect(() => {
     let mounted = true;
 
     const triggerDebrief = async () => {
       setIsLoading(true);
+      setDebriefPhase('reading');
+
+      const phaseTimer = setTimeout(() => {
+        if (mounted) {
+          setDebriefPhase((prev) => (prev === 'reading' ? 'synthesizing' : prev));
+        }
+      }, 1500);
+
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       try {
         let promptPayload = '';
         let modePayload: 'debrief' | 'global_checkin' = 'debrief';
@@ -122,39 +150,95 @@ export function CheckInHub({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            reflectionText: promptPayload,
             prompt: promptPayload,
             mode: modePayload,
             history: [],
             title: titlePayload,
             mood: moodPayload,
             locality: localityPayload || undefined,
+            tone: userPreferences.personality,
             personality: userPreferences.personality,
             customToneDirective: userPreferences.customToneDirective,
           }),
+          signal: abortController.signal,
         });
 
-        if (!response.ok) throw new Error('Failed to get reflection');
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => '');
+          let errMsg = `Status ${response.status}`;
+          try {
+            const parsed = JSON.parse(errBody);
+            errMsg = parsed.error || errMsg;
+          } catch {
+            if (errBody) errMsg = errBody;
+          }
+          throw new Error(errMsg);
+        }
 
-        const data = await response.json();
-        const newMessage: ChatMessage = {
-          id: generateUniqueId('msg'),
-          role: 'assistant',
-          content: data.text,
-          timestamp: getCurrentTimestamp(),
-          mode: modePayload,
-        };
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('Response stream is not readable');
+        const decoder = new TextDecoder('utf-8');
+        let accumulatedText = '';
+        const aiMsgId = generateUniqueId('msg_ai');
 
-        if (mounted) {
-          const updatedMessages = [newMessage];
-          setMessages(updatedMessages);
-          if (onSaveMessages) {
-            await onSaveMessages(updatedMessages);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk) {
+            clearTimeout(phaseTimer);
+            accumulatedText += chunk;
+            if (mounted) {
+              setDebriefPhase('streaming');
+              setMessages((prev) => {
+                const exists = prev.some((m) => m.id === aiMsgId);
+                if (!exists) {
+                  return [
+                    ...prev,
+                    {
+                      id: aiMsgId,
+                      role: 'assistant',
+                      content: accumulatedText,
+                      timestamp: getCurrentTimestamp(),
+                      mode: modePayload,
+                    },
+                  ];
+                }
+                return prev.map((m) => (m.id === aiMsgId ? { ...m, content: accumulatedText } : m));
+              });
+            }
           }
         }
-      } catch (err) {
-        console.error('Error during check-in hub debrief:', err);
+
+        // On complete stream arrival: sanitize and non-blockingly persist
+        if (mounted && accumulatedText) {
+          const finalAiMessage: ChatMessage = {
+            id: aiMsgId,
+            role: 'assistant',
+            content: accumulatedText,
+            timestamp: getCurrentTimestamp(),
+            mode: modePayload,
+          };
+          const updatedMessages = [finalAiMessage];
+          setMessages(updatedMessages);
+          if (onSaveMessages) {
+            const sanitized = sanitizePayload(updatedMessages) as ChatMessage[];
+            await onSaveMessages(sanitized);
+          }
+        }
+      } catch (err: unknown) {
+        if ((err as Error)?.name === 'AbortError') {
+          console.log('[CheckInHub] Debrief stream aborted by user');
+        } else {
+          console.error('Error during check-in hub debrief:', err);
+        }
       } finally {
-        if (mounted) setIsLoading(false);
+        clearTimeout(phaseTimer);
+        if (mounted) {
+          setIsLoading(false);
+          setDebriefPhase('idle');
+        }
       }
     };
 
@@ -164,82 +248,152 @@ export function CheckInHub({
 
     return () => {
       mounted = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
-
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+    const userText = input.trim();
+    setInput('');
 
     const userMsg: ChatMessage = {
-      id: generateUniqueId('msg'),
+      id: generateUniqueId('msg_user'),
       role: 'user',
-      content: input.trim(),
+      content: userText,
       timestamp: getCurrentTimestamp(),
+      mode: 'debrief',
     };
 
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
-    setInput('');
-    setIsLoading(true);
 
+    // Optimistic background persistence of user input
     if (onSaveMessages) {
-      await onSaveMessages(newMessages);
+      const sanitized = sanitizePayload(newMessages) as ChatMessage[];
+      onSaveMessages(sanitized).catch((e) => console.warn('Optimistic save notice:', e));
     }
 
+    setIsLoading(true);
+    setDebriefPhase('reading');
+
+    const phaseTimer = setTimeout(() => {
+      setDebriefPhase((prev) => (prev === 'reading' ? 'synthesizing' : prev));
+    }, 1500);
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
-      const modePayload = isGlobal ? 'global_checkin' : 'debrief';
-      const titlePayload = isGlobal ? 'Holistic Check-in' : entry?.title || 'Reflection';
-      const moodPayload = isGlobal
-        ? recentEntriesToUse[0]?.mood || 'thoughtful'
-        : entry?.mood || 'thoughtful';
-
-      const localityPayload = entry?.location || (isGlobal ? recentEntriesToUse[0]?.location : undefined);
-
       const response = await fetch('/api/gemini/reflect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: userMsg.content,
-          mode: modePayload,
-          history: newMessages.slice(0, -1),
-          title: titlePayload,
-          mood: moodPayload,
-          locality: localityPayload || undefined,
+          reflectionText: userText,
+          prompt: userText,
+          history: newMessages,
+          mode: 'debrief',
+          tone: userPreferences.personality,
           personality: userPreferences.personality,
           customToneDirective: userPreferences.customToneDirective,
         }),
+        signal: abortController.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
-
-      const data = await response.json();
-      const assistantMsg: ChatMessage = {
-        id: generateUniqueId('msg'),
-        role: 'assistant',
-        content: data.text,
-        timestamp: getCurrentTimestamp(),
-        mode: modePayload,
-      };
-
-      const finalMessages = [...newMessages, assistantMsg];
-      setMessages(finalMessages);
-      if (onSaveMessages) {
-        await onSaveMessages(finalMessages);
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        let errMsg = `Status ${response.status}`;
+        try {
+          const parsed = JSON.parse(errBody);
+          errMsg = parsed.error || errMsg;
+        } catch {
+          if (errBody) errMsg = errBody;
+        }
+        throw new Error(errMsg);
       }
-    } catch (err) {
-      console.error('Error sending message in check-in hub:', err);
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Response stream is not readable');
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedText = '';
+      const aiMsgId = generateUniqueId('msg_ai');
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (chunk) {
+          clearTimeout(phaseTimer);
+          accumulatedText += chunk;
+          setDebriefPhase('streaming');
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === aiMsgId);
+            if (!exists) {
+              return [
+                ...prev,
+                {
+                  id: aiMsgId,
+                  role: 'assistant',
+                  content: accumulatedText,
+                  timestamp: getCurrentTimestamp(),
+                  mode: 'debrief',
+                },
+              ];
+            }
+            return prev.map((m) => (m.id === aiMsgId ? { ...m, content: accumulatedText } : m));
+          });
+        }
+      }
+
+      if (accumulatedText) {
+        const aiMsg: ChatMessage = {
+          id: aiMsgId,
+          role: 'assistant',
+          content: accumulatedText,
+          timestamp: getCurrentTimestamp(),
+          mode: 'debrief',
+        };
+        const finalMessages = [...newMessages, aiMsg];
+        setMessages(finalMessages);
+        if (onSaveMessages) {
+          const sanitized = sanitizePayload(finalMessages) as ChatMessage[];
+          await onSaveMessages(sanitized);
+        }
+      }
+    } catch (e: unknown) {
+      if ((e as Error)?.name === 'AbortError') {
+        console.log('[CheckInHub] Stream aborted by user');
+      } else {
+        console.error('Error in check-in conversation stream:', e);
+      }
     } finally {
+      clearTimeout(phaseTimer);
       setIsLoading(false);
+      setDebriefPhase('idle');
     }
   };
 
   const handleQuickReply = (text: string) => {
     setInput(text);
+  };
+
+  const handleFinishDebrief = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (onSaveMessages && messages.length > 0) {
+      const sanitized = sanitizePayload(messages) as ChatMessage[];
+      await onSaveMessages(sanitized);
+    }
+    if (onSaveSuccess) {
+      onSaveSuccess('Debrief saved successfully');
+    }
+    onClose();
   };
 
   return (
@@ -258,13 +412,13 @@ export function CheckInHub({
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-200 shrink-0">
-              <Sparkles className="w-4 h-4 text-neutral-300" />
+              <ClipboardCheck className="w-4 h-4 text-neutral-300" />
             </div>
             <div>
               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">Check-in Hub</h2>
+                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">History & Debrief</h2>
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
-                  {isGlobal ? 'Holistic Debrief' : 'Entry Debrief'}
+                  {isGlobal ? 'Holistic Debrief & Reflection Archive' : 'Entry Debrief'}
                 </span>
                 {(entry?.location || (isGlobal && recentEntriesToUse[0]?.location)) && (
                   <span
@@ -292,24 +446,36 @@ export function CheckInHub({
                 {isGlobal
                   ? recentEntriesToUse.length > 0
                     ? `Synthesizing themes from your last ${recentEntriesToUse.length} reflection${recentEntriesToUse.length === 1 ? '' : 's'}`
-                    : 'Holistic confidant check-in'
+                    : 'Holistic confidant check-in & reflection archive'
                   : `Conversing with Frankly about "${entry?.title || 'Reflection'}"`}
               </p>
             </div>
           </div>
-          <button
-            id="close-checkin-hub-btn"
-            onClick={onClose}
-            className="p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
-            aria-label="Close Check-in Hub"
-            title="Close (Esc)"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              type="button"
+              id="finish-debrief-btn"
+              onClick={handleFinishDebrief}
+              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+              title="Save debrief and finish"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Done Debriefing</span>
+            </button>
+            <button
+              id="close-checkin-hub-btn"
+              onClick={onClose}
+              className="p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
+              aria-label="Close History & Debrief"
+              title="Close (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Conversation */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -342,11 +508,20 @@ export function CheckInHub({
             </div>
           ))}
 
-          {isLoading && (
-            <div className="flex items-start space-x-2">
-              <div className="p-3.5 rounded-2xl bg-neutral-800/90 border border-neutral-700/70 text-neutral-300 rounded-tl-xs flex items-center space-x-2.5 shadow-xs">
-                <RefreshCw className="w-3.5 h-3.5 text-neutral-300 animate-spin" />
-                <span className="text-xs font-medium text-neutral-300">Frankly is thinking...</span>
+          {isLoading && debriefPhase !== 'streaming' && (
+            <div className="flex items-start space-x-2 animate-in fade-in duration-150">
+              <div className="p-3.5 rounded-2xl bg-neutral-800/90 border border-neutral-700/70 text-neutral-300 rounded-tl-xs flex items-center space-x-3 shadow-xs">
+                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium text-neutral-200">
+                    {debriefPhase === 'reading'
+                      ? 'Frankly is reading your reflection...'
+                      : 'Synthesizing core themes...'}
+                  </span>
+                  <span className="text-[10px] text-neutral-500 animate-pulse">
+                    {debriefPhase === 'reading' ? 'Analyzing tone & context' : 'Formulating candid reflection'}
+                  </span>
+                </div>
               </div>
             </div>
           )}

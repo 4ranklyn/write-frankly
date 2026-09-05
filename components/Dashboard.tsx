@@ -3,13 +3,24 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
-import { JournalEntry, ChatMessage, EntryMood, UserPreferences, AIPersonality } from '@/types/journal';
+import {
+  JournalEntry,
+  ChatMessage,
+  EntryMood,
+  UserPreferences,
+  AIPersonality,
+  normalizePersonality,
+  getPersonaLabel,
+  getStartersForPersonality,
+  STARTERS_BY_PERSONALITY,
+} from '@/types/journal';
 import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
 import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly } from '@/lib/utils';
+import { sanitizePayload } from '@/lib/sanitizer';
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
-  LogOut, PanelLeft, Sliders, MapPin,
+  LogOut, PanelLeft, Sliders, MapPin, BookOpen, ClipboardCheck, CheckCircle2,
 } from 'lucide-react';
 import Image from 'next/image';
 import Markdown from 'react-markdown';
@@ -20,6 +31,10 @@ import { CheckInHub } from '@/components/CheckInHub';
 import { PersonalitySettings } from '@/components/PersonalitySettings';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { usePreferences } from '@/hooks/usePreferences';
+import { GuestModeBanner } from '@/components/GuestModeBanner';
+import { GuestAccountToast } from '@/components/GuestAccountToast';
+import { SaveSuccessToast } from '@/components/SaveSuccessToast';
+import { SyncErrorBanner } from '@/components/SyncErrorBanner';
 
 const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'thoughtful', label: 'Thoughtful', icon: '🤔' },
@@ -31,12 +46,7 @@ const MOODS: { value: EntryMood; label: string; icon: string }[] = [
   { value: 'neutral', label: 'Neutral', icon: '🌱' },
 ];
 
-const SUGGESTED_STARTERS = [
-  'What am I avoiding saying out loud about this situation?',
-  'Point out where my reasoning or narrative doesn’t quite add up.',
-  'Here is what happened — give it to me straight without softening.',
-  'What would I do if the excuse I just gave was not an option?',
-];
+const SUGGESTED_STARTERS = STARTERS_BY_PERSONALITY.pragmatic_coach;
 
 const QUICK_ACTIONS: { id: string; label: string; mode: 'reflect' | 'summarize' | 'action_items' | 'reframe'; prompt: string; icon: React.ElementType }[] = [
   { id: 'action-deep-reflect-btn', label: 'Challenge Assumption', mode: 'reflect', prompt: 'Look at what I just wrote. What unexamined assumption or elephant in the room am I ignoring?', icon: Lightbulb },
@@ -73,23 +83,12 @@ export function Dashboard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showGuestAccountPrompt, setShowGuestAccountPrompt] = useState(false);
+  const [saveToastMessage, setSaveToastMessage] = useState<string | null>(null);
+  const [isRetryingSave, setIsRetryingSave] = useState(false);
 
   const { preferences, updatePreferences: handleUpdatePreferences } = usePreferences();
   const [isPersonalitySettingsOpen, setIsPersonalitySettingsOpen] = useState(false);
-
-  const getPersonaLabel = (id?: AIPersonality): string => {
-    switch (id) {
-      case 'pragmatic_coach':
-        return 'Pragmatic Coach';
-      case 'stoic_philosopher':
-        return 'Stoic Philosopher';
-      case 'socratic_inquirer':
-        return 'Socratic Inquirer';
-      case 'warm_confidant':
-      default:
-        return 'Warm Confidant';
-    }
-  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -234,6 +233,7 @@ export function Dashboard({
     setCurrentLocation(undefined);
     if (isGuest) {
       if (guestEntry && guestEntry.messages.length > 0) {
+        setShowGuestAccountPrompt(true);
         alert("Guest session limit reached (1/1 entry). Create an account to unlock unlimited, encrypted journaling.");
         return;
       }
@@ -284,7 +284,42 @@ export function Dashboard({
     
     if (updates.isFinalized) {
       flushPendingSync();
-      setIsCheckInHubOpen(true);
+      setSaveStatus('saved');
+      setSaveToastMessage('Reflection saved successfully');
+    }
+  };
+
+  const handleSaveAndFinish = () => {
+    if (!activeEntry) return;
+    flushPendingSync();
+    handleUpdateMetadata({ isFinalized: true });
+    setSaveStatus('saved');
+    setSaveToastMessage('Reflection saved successfully');
+    if (isGuest) {
+      setShowGuestAccountPrompt(true);
+    }
+  };
+
+  const handleRetrySave = async () => {
+    if (isRetryingSave || !activeEntry) return;
+    setIsRetryingSave(true);
+    setSaveStatus('saving');
+    try {
+      if (isGuest) {
+        setGuestEntry(activeEntry);
+        setEntries((prev) => prev.map((e) => (e.id === activeEntry.id ? activeEntry : e)));
+      } else if (user) {
+        await saveJournalEntry(user.uid, activeEntry);
+        pendingSyncEntryRef.current = null;
+      }
+      setSaveStatus('saved');
+      setErrorMessage(null);
+      setSaveToastMessage('Reflection synced successfully');
+    } catch (err: unknown) {
+      setSaveStatus('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to sync reflection.');
+    } finally {
+      setIsRetryingSave(false);
     }
   };
 
@@ -342,26 +377,66 @@ export function Dashboard({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Status ${response.status}`);
+        const errorText = await response.text().catch(() => '');
+        let errorMsg = `Status ${response.status}`;
+        try {
+          const parsed = JSON.parse(errorText);
+          if (parsed.error) errorMsg = parsed.error;
+        } catch {
+          if (errorText) errorMsg = errorText;
+        }
+        throw new Error(errorMsg);
       }
 
-      const data = await response.json();
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+
       const aiTimestamp = getCurrentTimestamp();
+      const assistantMessageId = generateUniqueId('msg_ai');
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+
+          const intermediateAiMessage: ChatMessage = {
+            id: assistantMessageId,
+            role: 'assistant',
+            content: fullText,
+            timestamp: aiTimestamp,
+            mode,
+          };
+          const intermediateEntry: JournalEntry = {
+            ...updatedEntry,
+            messages: [...updatedMessages, intermediateAiMessage],
+            summary: mode === 'summarize' ? fullText : updatedEntry.summary,
+            updatedAt: aiTimestamp,
+          };
+          if (isGuest) {
+            setGuestEntry(intermediateEntry);
+          }
+        }
+      } else {
+        fullText = await response.text();
+      }
+
       const assistantMessage: ChatMessage = {
-        id: generateUniqueId('msg_ai'),
+        id: assistantMessageId,
         role: 'assistant',
-        content: data.text || 'Unable to generate reflection.',
+        content: fullText || 'Unable to generate reflection.',
         timestamp: aiTimestamp,
         mode,
       };
 
-      const finalEntry: JournalEntry = {
+      const finalEntry: JournalEntry = sanitizePayload({
         ...updatedEntry,
         messages: [...updatedMessages, assistantMessage],
-        summary: mode === 'summarize' ? data.text : updatedEntry.summary,
+        summary: mode === 'summarize' ? (fullText || updatedEntry.summary) : updatedEntry.summary,
         updatedAt: aiTimestamp,
-      };
+      });
 
       if (isGuest) {
         setGuestEntry(finalEntry);
@@ -408,6 +483,9 @@ export function Dashboard({
 
   const handleExportMarkdown = () => {
     if (!activeEntry) return;
+    if (isGuest) {
+      setShowGuestAccountPrompt(true);
+    }
     const locHeader = effectiveLocation ? `\n**Location:** ${effectiveLocation}` : '';
     let md = `# ${activeEntry.title || 'Untitled Reflection'}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}${locHeader}\n\n## Journal Dialogue\n\n`;
     activeEntry.messages.forEach((msg) => {
@@ -427,6 +505,9 @@ export function Dashboard({
 
   const handleCopyExportText = () => {
     if (!activeEntry) return;
+    if (isGuest) {
+      setShowGuestAccountPrompt(true);
+    }
     const locHeader = effectiveLocation ? `\n**Location:** ${effectiveLocation}` : '';
     let md = `# ${activeEntry.title || 'Untitled Reflection'}\n\n**Date:** ${new Date(activeEntry.createdAt).toLocaleString()}\n**Mood:** ${activeEntry.mood}${locHeader}\n\n## Journal Dialogue\n\n`;
     activeEntry.messages.forEach((msg) => {
@@ -576,7 +657,7 @@ export function Dashboard({
                       )}
                       {entry.messages.some(m => m.mode === 'debrief') && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-indigo-50 text-indigo-700 border-indigo-200/80 flex items-center space-x-1">
-                          <Sparkles className="w-2.5 h-2.5" />
+                          <ClipboardCheck className="w-2.5 h-2.5" />
                           <span>Checked in</span>
                         </span>
                       )}
@@ -690,11 +771,11 @@ export function Dashboard({
                     <button
                       id="mobile-sidebar-toggle-btn"
                       onClick={onToggleSidebar}
-                      aria-label="Toggle history sidebar"
+                      aria-label="Toggle journal entries"
                       className="md:hidden p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0"
-                      title="Toggle sidebar"
+                      title="Journal Entries"
                     >
-                      <PanelLeft className="w-4 h-4" />
+                      <BookOpen className="w-4 h-4" />
                     </button>
                   )}
                   <input
@@ -717,6 +798,16 @@ export function Dashboard({
                     ))}
                   </select>
                   <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
+                  <button
+                    id="header-tone-pill-btn"
+                    type="button"
+                    onClick={() => setIsPersonalitySettingsOpen(true)}
+                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer"
+                    title="Customize Frankly's Tone & Personality"
+                  >
+                    <Sparkles className="w-3 h-3 text-zinc-500" />
+                    <span>{getPersonaLabel(preferences.personality)}</span>
+                  </button>
                 </div>
 
                 <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
@@ -769,10 +860,10 @@ export function Dashboard({
                       setIsCheckInHubOpen(true);
                     }}
                     className="px-2.5 py-1 rounded-full bg-zinc-900 text-zinc-50 hover:bg-zinc-800 transition-colors text-xs font-medium flex items-center space-x-1 shrink-0 cursor-pointer shadow-2xs"
-                    title="Check-in Here"
+                    title="Entry Debrief"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
-                    <span className="hidden sm:inline">Check-in Here</span>
+                    <ClipboardCheck className="w-3.5 h-3.5 text-zinc-300" />
+                    <span className="hidden sm:inline">Entry Debrief</span>
                   </button>
 
                   {deleteConfirmId === activeEntry.id ? (
@@ -804,11 +895,41 @@ export function Dashboard({
                 </div>
               </div>
 
-              {/* Subtle Timestamp Indicator */}
+              {/* Subtle Timestamp Indicator & Autosave Status */}
               <div
                 id="editor-timestamp-indicator"
                 className="flex items-center space-x-2 text-[11px] text-zinc-400 font-normal px-1"
               >
+                <span
+                  id="autosave-status-indicator"
+                  className={`inline-flex items-center space-x-1 font-medium ${
+                    saveStatus === 'saved'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : saveStatus === 'saving'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {saveStatus === 'saved' && (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      <span>Saved ✓</span>
+                    </>
+                  )}
+                  {saveStatus === 'saving' && (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin text-amber-600 dark:text-amber-400" />
+                      <span>Saving...</span>
+                    </>
+                  )}
+                  {saveStatus === 'error' && (
+                    <>
+                      <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                      <span>Save Error</span>
+                    </>
+                  )}
+                </span>
+                <span>•</span>
                 <span id="created-at-indicator" title={formatDateTime(activeEntry.createdAt)}>
                   Created at {formatDateTime(activeEntry.createdAt)}
                 </span>
@@ -820,34 +941,17 @@ export function Dashboard({
             </div>
 
             {errorMessage && (
-              <div id="workspace-error-banner" className="px-4 py-2 bg-zinc-100 border-b border-zinc-200 text-zinc-800 text-xs flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <AlertCircle className="w-4 h-4 text-zinc-700 shrink-0" />
-                  <span>{errorMessage}</span>
-                </div>
-                <button
-                  id="retry-save-btn"
-                  onClick={() => handleUpdateMetadata({})}
-                  className="px-2 py-0.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-md font-medium text-[11px]"
-                >
-                  Retry Save
-                </button>
-              </div>
+              <SyncErrorBanner
+                errorMessage={errorMessage}
+                onRetry={handleRetrySave}
+                isRetrying={isRetryingSave}
+                onDismiss={() => setErrorMessage(null)}
+                isLocallySaved={true}
+              />
             )}
 
             {isGuest && (
-              <div className="bg-zinc-900 text-zinc-50 px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">
-                <div className="flex items-center space-x-2 text-zinc-300">
-                  <Sparkles className="w-4 h-4 text-zinc-400" />
-                  <span>You are trying Frankly in guest mode. Want end-to-end zero-knowledge encryption across devices?</span>
-                </div>
-                <button
-                  onClick={() => signInWithGoogle()}
-                  className="px-3 py-1.5 rounded-md bg-white text-zinc-900 font-medium hover:bg-zinc-200 transition-colors shrink-0 whitespace-nowrap"
-                >
-                  Create Encrypted Account
-                </button>
-              </div>
+              <GuestModeBanner onSignUp={signInWithGoogle} />
             )}
 
             <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6 bg-[#fafafa]">
@@ -862,7 +966,7 @@ export function Dashboard({
                   </p>
 
                   <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-                    {SUGGESTED_STARTERS.map((starter, idx) => (
+                    {getStartersForPersonality(preferences.personality).map((starter, idx) => (
                       <button
                         key={idx}
                         id={`starter-prompt-btn-${idx}`}
@@ -961,14 +1065,55 @@ export function Dashboard({
             {/* Input Composer */}
             <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
               {activeEntry.isFinalized ? (
-                <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-4 space-y-2 text-center">
-                  <p className="text-zinc-600 text-sm font-medium">
-                    This journal session has been ended and saved securely.
+                <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
+                  <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Reflection saved and finished</span>
+                  </div>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
+                    This journal session has been ended and saved securely. You can start a new reflection, view your archive, or debrief with Frankly.
                   </p>
                   <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
                     <span id="finalized-word-count">{editorWordCount.words.toLocaleString()} words</span>
                     <span>•</span>
                     <span id="finalized-char-count">{editorWordCount.characters.toLocaleString()} characters</span>
+                  </div>
+                  <div className="flex items-center space-x-2 pt-1 flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      id="finalized-new-entry-btn"
+                      onClick={handleCreateNewEntry}
+                      className="px-3.5 py-1.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-medium transition-colors shadow-2xs inline-flex items-center space-x-1.5 cursor-pointer"
+                      title="Start a new reflection"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ New Reflection</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="finalized-history-btn"
+                      onClick={() => {
+                        if (onToggleSidebar) onToggleSidebar();
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-white hover:bg-zinc-100 text-zinc-800 text-xs font-medium border border-zinc-200/80 shadow-2xs transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+                      title="View all reflections"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
+                      <span>My Reflections</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="finalized-debrief-btn"
+                      onClick={() => {
+                        setCheckInTargetEntry(activeEntry);
+                        setIsCheckInHubOpen(true);
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-medium transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+                      title="Start an AI debrief about this reflection"
+                    >
+                      <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Debrief with Frankly →</span>
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -1002,7 +1147,7 @@ export function Dashboard({
                     </button>
                   </div>
                   
-                  {/* Editor Footer: Soft Word & Character Count + End & Save */}
+                  {/* Editor Footer: Soft Word & Character Count + Save & Finish */}
                   <div id="editor-footer-bar" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-0.5">
                     <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-500">
                       <span id="editor-word-count" className="font-medium text-zinc-600">
@@ -1022,13 +1167,34 @@ export function Dashboard({
                         </span>
                       )}
                     </div>
-                    <button
-                      id="end-and-save-btn"
-                      onClick={() => handleUpdateMetadata({ isFinalized: true })}
-                      className="px-4 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer self-end sm:self-auto"
-                    >
-                      End & Save Journal
-                    </button>
+                    <div className="flex items-center space-x-2 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        id="footer-debrief-prompt-btn"
+                        onClick={() => {
+                          flushPendingSync();
+                          setCheckInTargetEntry(activeEntry);
+                          setIsCheckInHubOpen(true);
+                        }}
+                        className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition-colors border border-zinc-200/80 inline-flex items-center space-x-1.5 cursor-pointer"
+                        title="Explore an AI debrief for this reflection"
+                      >
+                        <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
+                        <span className="hidden xs:inline">Debrief with Frankly →</span>
+                        <span className="xs:hidden">Debrief →</span>
+                      </button>
+                      <button
+                        type="button"
+                        id="save-and-finish-btn"
+                        data-alias="end-and-save-btn"
+                        onClick={handleSaveAndFinish}
+                        className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
+                        title="Commit reflection and finish session"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save & Finish</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1043,13 +1209,14 @@ export function Dashboard({
                   <button
                     id="empty-mobile-sidebar-toggle-btn"
                     onClick={onToggleSidebar}
-                    aria-label="Toggle history sidebar"
+                    aria-label="Toggle journal entries"
                     className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors"
+                    title="Journal Entries"
                   >
-                    <PanelLeft className="w-4 h-4" />
+                    <BookOpen className="w-4 h-4" />
                   </button>
                 )}
-                <span className="text-xs font-medium text-zinc-500">Workspace</span>
+                <span className="text-xs font-medium text-zinc-500">My Reflections</span>
               </div>
               <button
                 id="empty-checkin-hub-btn"
@@ -1059,30 +1226,31 @@ export function Dashboard({
                   setIsCheckInHubOpen(true);
                 }}
                 className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
-                title="Open Holistic Check-in Hub"
+                title="Open History & Debrief"
               >
-                <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
-                <span>Check-in Hub</span>
+                <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
+                <span>History & Debrief</span>
               </button>
             </div>
 
             <div className="flex-1 flex items-center justify-center p-6 text-center">
               <div className="max-w-sm">
                 <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center mx-auto mb-3.5 border border-zinc-200/70">
-                  <Compass className="w-5 h-5" />
+                  <BookOpen className="w-5 h-5" />
                 </div>
                 <h2 className="text-base font-semibold text-zinc-900">Welcome to WriteFrankly</h2>
                 <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
-                  Select an entry from your journal history, start a new reflection, or open the Check-in Hub for a holistic debrief.
+                  Select an entry from your journal history, start a new reflection, or open History & Debrief for a holistic debrief.
                 </p>
                 <div className="mt-5 flex items-center justify-center space-x-2.5">
                   <button
                     id="empty-state-new-entry-btn"
                     onClick={handleCreateNewEntry}
                     className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium shadow-2xs transition-all duration-200 cursor-pointer"
+                    title="Start a new reflection"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Create New Entry</span>
+                    <span>+ New Reflection</span>
                   </button>
                   <button
                     id="empty-state-checkin-btn"
@@ -1092,9 +1260,10 @@ export function Dashboard({
                       setIsCheckInHubOpen(true);
                     }}
                     className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-full bg-white hover:bg-zinc-50 active:bg-zinc-100 text-zinc-800 text-xs font-medium border border-zinc-200/80 shadow-2xs transition-all duration-200 cursor-pointer"
+                    title="View past debriefs and reflections"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
-                    <span>Check-in Hub</span>
+                    <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
+                    <span>Past Debriefs</span>
                   </button>
                 </div>
               </div>
@@ -1129,6 +1298,7 @@ export function Dashboard({
             }
           }}
           isGuest={isGuest}
+          onSaveSuccess={(msg) => setSaveToastMessage(msg || 'Debrief saved successfully')}
         />
       )}
 
@@ -1139,6 +1309,22 @@ export function Dashboard({
           onClose={() => setIsPersonalitySettingsOpen(false)}
           currentPreferences={preferences}
           onSave={handleUpdatePreferences}
+        />
+      )}
+
+      {/* Intent-Driven Guest Account Toast Prompt */}
+      {isGuest && showGuestAccountPrompt && (
+        <GuestAccountToast
+          onSignUp={signInWithGoogle}
+          onClose={() => setShowGuestAccountPrompt(false)}
+        />
+      )}
+
+      {/* High-Contrast Save Success Confirmation Toast */}
+      {saveToastMessage && (
+        <SaveSuccessToast
+          message={saveToastMessage}
+          onClose={() => setSaveToastMessage(null)}
         />
       )}
     </div>

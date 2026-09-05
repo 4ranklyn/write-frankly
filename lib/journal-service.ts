@@ -11,7 +11,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
-import { JournalEntry, ChatMessage, UserPreferences, AIPersonality } from '@/types/journal';
+import { JournalEntry, ChatMessage, UserPreferences, AIPersonality, normalizePersonality } from '@/types/journal';
 import { sanitizePayload } from './sanitizer';
 import { deriveKeyFromPassphrase, encryptText, decryptText, EncryptedPayload } from './crypto';
 
@@ -324,9 +324,7 @@ export function getStoredUserPreferences(userId?: string): UserPreferences {
     const raw = localStorage.getItem(key) || localStorage.getItem('frankly_prefs_global');
     if (raw) {
       const parsed = JSON.parse(raw);
-      const personality: AIPersonality = VALID_PERSONALITIES.includes(parsed.personality)
-        ? parsed.personality
-        : 'warm_confidant';
+      const personality: AIPersonality = normalizePersonality(parsed.personality);
       return {
         personality,
         customToneDirective: typeof parsed.customToneDirective === 'string' ? parsed.customToneDirective : '',
@@ -367,9 +365,7 @@ export async function loadUserPreferences(userId?: string): Promise<UserPreferen
     const snap = await getDoc(settingsRef);
     if (snap.exists()) {
       const data = snap.data();
-      const personality: AIPersonality = VALID_PERSONALITIES.includes(data.personality)
-        ? data.personality
-        : local.personality;
+      const personality: AIPersonality = normalizePersonality(data.personality);
       const remotePrefs: UserPreferences = {
         personality,
         customToneDirective: typeof data.customToneDirective === 'string' ? data.customToneDirective : local.customToneDirective,
@@ -396,7 +392,7 @@ export async function loadUserPreferences(userId?: string): Promise<UserPreferen
 export async function saveUserPreferences(userId?: string, prefs: UserPreferences = DEFAULT_USER_PREFERENCES): Promise<void> {
   const sanitized = sanitizePayload({
     ...prefs,
-    personality: VALID_PERSONALITIES.includes(prefs.personality) ? prefs.personality : 'warm_confidant',
+    personality: normalizePersonality(prefs.personality),
     customToneDirective: prefs.customToneDirective || '',
   }) as UserPreferences;
 

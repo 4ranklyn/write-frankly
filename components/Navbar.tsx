@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Sparkles, LogOut, Plus, PanelLeft } from 'lucide-react';
+import { Sparkles, LogOut, Plus, BookOpen, ClipboardCheck } from 'lucide-react';
 import Image from 'next/image';
 
 interface NavbarProps {
@@ -24,10 +24,11 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
           <button
             id="sidebar-toggle-btn"
             onClick={onToggleSidebar}
-            aria-label="Toggle history sidebar"
+            aria-label="Toggle journal entries"
+            title="Journal Entries"
             className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors"
           >
-            <PanelLeft className="w-4 h-4" />
+            <BookOpen className="w-4 h-4" />
           </button>
         )}
         <div className="flex items-center space-x-2.5">
@@ -51,10 +52,10 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
                 id="nav-checkin-hub-btn"
                 onClick={onOpenCheckInHub}
                 className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
-                title="Open Holistic Check-in Hub"
+                title="Open History & Debrief"
               >
-                <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
-                <span>Check-in Hub</span>
+                <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
+                <span>History & Debrief</span>
               </button>
             )}
 
@@ -62,9 +63,10 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
               id="nav-new-entry-btn"
               onClick={onNewEntry}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-200 shadow-2xs cursor-pointer"
+              title="Start a new reflection"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Entry</span>
+              <span>New Reflection</span>
             </button>
 
             <div className="h-4 w-px bg-zinc-200" />

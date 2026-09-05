@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "workspace": "WriteFrankly",
   "rules": [
     {
@@ -49,6 +49,55 @@
       "directives": [
         "Block hardcoded API keys and credentials in staged commits.",
         "Execute automated test suites (security.test.ts and sanitizer.test.ts) before git commits."
+      ]
+    },
+    {
+      "id": "agentic-threat-modeling",
+      "name": "Agentic Threat Modeling & Secure Coding",
+      "description": "Mandate structured 5-zone threat analysis, OWASP LLM guardrails, and input sanitization before generating implementations.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Before generating code or system architecture, output a Threat Summary Table covering: Input Surfaces, Planning & Reasoning, Tool Execution, Memory & State, and Inter-System Communication.",
+        "Sanitize all inputs via strict schema validation to prevent injection.",
+        "Encode all dynamic LLM outputs prior to rendering in HTML/JS.",
+        "Never use unparameterized strings or insecure defaults."
+      ]
+    },
+    {
+      "id": "gemini-model-resilience",
+      "name": "Gemini Model Resilience & Fallback Ladder",
+      "description": "Enforce resilient fallback chains across Gemini model generations.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Never hardcode a single model string for generation.",
+        "Wrap all content generation with an automated fallback ladder: gemini-3.6-flash -> gemini-3.1-flash-lite -> gemini-flash-latest -> gemini-3.7-flash.",
+        "Catch recoverable codes (503, 429, 404, 500) and step sequentially down the fallback chain before failing."
+      ]
+    },
+    {
+      "id": "persistence-payload-integrity",
+      "name": "Zero-Crash Payload Hygiene & Transaction Verification",
+      "description": "Guarantee payload hygiene before database persistence and require explicit error recovery.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Strip all undefined fields from objects before passing them to Firestore setDoc/updateDoc.",
+        "Perform defensive null-safe destructuring on all request bodies, params, and headers.",
+        "Never fail persistence silently; if a write fails, maintain the user's input buffer and display a high-contrast retry alert.",
+        "Ensure both user input and AI output are successfully committed to state."
+      ]
+    },
+    {
+      "id": "functional-stability-walkthroughs",
+      "name": "Functional Stability & User Walkthroughs",
+      "description": "Require explicit step-by-step user walkthrough test cases for all interactive elements.",
+      "level": "warning",
+      "trigger": "always_on",
+      "directives": [
+        "Every interactive UI trigger (buttons, forms, toggles, debrief flows) must include concrete user walkthrough test steps.",
+        "Document expected visual states, pending states, error escalations, and deterministic transition outcomes."
       ]
     }
   ]

@@ -11,7 +11,7 @@
     "build": "next build && cp -r public .next/standalone/ 2>/dev/null || true && cp -r .next/static .next/standalone/.next/ 2>/dev/null || true",
     "start": "node server.ts",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test tests/sanitizer.test.ts tests/security.test.ts tests/crypto.test.ts"
+    "test": "node --experimental-strip-types --test tests/sanitizer.test.ts tests/security.test.ts tests/crypto.test.ts tests/guest-banner.test.ts tests/save-flow.test.ts tests/error-banner.test.ts tests/personality-settings.test.ts tests/streaming-debrief.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
