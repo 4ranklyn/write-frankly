@@ -108,6 +108,10 @@ export function CheckInHub({
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, 15000);
+
       try {
         let promptPayload = '';
         let modePayload: 'debrief' | 'global_checkin' = 'debrief';
@@ -235,6 +239,7 @@ export function CheckInHub({
         }
       } finally {
         clearTimeout(phaseTimer);
+        clearTimeout(timeoutId);
         if (mounted) {
           setIsLoading(false);
           setDebriefPhase('idle');
@@ -287,6 +292,10 @@ export function CheckInHub({
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, 15000);
 
     try {
       const response = await fetch('/api/gemini/reflect', {
@@ -372,6 +381,7 @@ export function CheckInHub({
       }
     } finally {
       clearTimeout(phaseTimer);
+      clearTimeout(timeoutId);
       setIsLoading(false);
       setDebriefPhase('idle');
     }

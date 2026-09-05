@@ -32,9 +32,9 @@ describe('GuestModeBanner Logic & Dismissal Persistence', () => {
     };
   });
 
-  it('should have correct storage key and 24h threshold', () => {
+  it('should have correct storage key and 48h threshold', () => {
     assert.strictEqual(GUEST_BANNER_STORAGE_KEY, 'frankly_guest_banner_dismissed_at');
-    assert.strictEqual(BANNER_DISMISS_THRESHOLD_MS, 24 * 60 * 60 * 1000);
+    assert.strictEqual(BANNER_DISMISS_THRESHOLD_MS, 48 * 60 * 60 * 1000);
   });
 
   it('should return false when banner has never been dismissed', () => {
@@ -45,24 +45,30 @@ describe('GuestModeBanner Logic & Dismissal Persistence', () => {
     const now = 1700000000000;
     dismissGuestBanner(now);
     assert.strictEqual(store[GUEST_BANNER_STORAGE_KEY], now.toString());
+    assert.strictEqual(store['frankly_guest_banner_dismissed'], 'true');
     assert.strictEqual(isGuestBannerDismissed(now), true);
     assert.strictEqual(isGuestBannerDismissed(now + 1000), true);
   });
 
-  it('should return true when dismissed within the 24h window', () => {
+  it('should return true when dismissed within the 48h window', () => {
     const now = 1700000000000;
     dismissGuestBanner(now);
-    // 23 hours later
-    const twentyThreeHoursLater = now + 23 * 60 * 60 * 1000;
-    assert.strictEqual(isGuestBannerDismissed(twentyThreeHoursLater), true);
+    // 47 hours later
+    const fortySevenHoursLater = now + 47 * 60 * 60 * 1000;
+    assert.strictEqual(isGuestBannerDismissed(fortySevenHoursLater), true);
   });
 
-  it('should return false (re-prompt) when 24h threshold has expired', () => {
+  it('should return false (re-prompt) when 48h threshold has expired', () => {
     const now = 1700000000000;
     dismissGuestBanner(now);
-    // 24 hours and 1 minute later
-    const expiredTime = now + (24 * 60 * 60 * 1000) + 60000;
+    // 48 hours and 1 minute later
+    const expiredTime = now + (48 * 60 * 60 * 1000) + 60000;
     assert.strictEqual(isGuestBannerDismissed(expiredTime), false);
+  });
+
+  it('should support frankly_guest_banner_dismissed boolean flag in localStorage', () => {
+    store['frankly_guest_banner_dismissed'] = 'true';
+    assert.strictEqual(isGuestBannerDismissed(), true);
   });
 
   it('should handle corrupted or non-numeric timestamps gracefully', () => {

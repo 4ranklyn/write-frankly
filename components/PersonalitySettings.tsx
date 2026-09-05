@@ -118,6 +118,7 @@ export function PersonalitySettings({
     };
     try {
       await onSave(updated);
+      onClose();
     } catch (err) {
       console.error('Failed to save personality preferences:', err);
     }

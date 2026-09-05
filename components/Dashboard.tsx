@@ -21,6 +21,7 @@ import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, FileText, ListOrdered, Lightbulb, Compass,
   LogOut, PanelLeft, Sliders, MapPin, BookOpen, ClipboardCheck, CheckCircle2,
+  ArrowLeft, MoreVertical, X, Loader2,
 } from 'lucide-react';
 import Image from 'next/image';
 import Markdown from 'react-markdown';
@@ -86,12 +87,14 @@ export function Dashboard({
   const [showGuestAccountPrompt, setShowGuestAccountPrompt] = useState(false);
   const [saveToastMessage, setSaveToastMessage] = useState<string | null>(null);
   const [isRetryingSave, setIsRetryingSave] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { preferences, updatePreferences: handleUpdatePreferences } = usePreferences();
   const [isPersonalitySettingsOpen, setIsPersonalitySettingsOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingSyncEntryRef = useRef<JournalEntry | null>(null);
 
   const { scheduleSync, flushPendingSync } = useAutoSync(async () => {
@@ -123,6 +126,47 @@ export function Dashboard({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
+
+  // Keyboard accelerators (adaptive-pwa)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Mod+Enter (Cmd+Enter / Ctrl+Enter): Save & Finish
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSaveAndFinish();
+        return;
+      }
+
+      // Mod+S: Manual trigger save/sync
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        flushPendingSync();
+        return;
+      }
+
+      // Mod+K: Focus reflection search / switcher
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      // Escape: Close open drawers, modals, or overflow sheets
+      if (e.key === 'Escape') {
+        if (mobileMenuOpen) {
+          setMobileMenuOpen(false);
+          setDeleteConfirmId(null);
+        } else if (isPersonalitySettingsOpen) {
+          setIsPersonalitySettingsOpen(false);
+        } else if (isCheckInHubOpen) {
+          setIsCheckInHubOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileMenuOpen, isPersonalitySettingsOpen, isCheckInHubOpen]);
 
   const handleSelectStarter = (starter: string) => {
     setPromptInput(starter);
@@ -289,14 +333,42 @@ export function Dashboard({
     }
   };
 
-  const handleSaveAndFinish = () => {
+  const handleSaveAndFinish = async () => {
     if (!activeEntry) return;
     flushPendingSync();
-    handleUpdateMetadata({ isFinalized: true });
-    setSaveStatus('saved');
-    setSaveToastMessage('Reflection saved successfully');
-    if (isGuest) {
-      setShowGuestAccountPrompt(true);
+
+    const finalizedTimestamp = getCurrentTimestamp();
+    const finalizedEntry: JournalEntry = sanitizePayload({
+      ...activeEntry,
+      location: effectiveLocation,
+      isFinalized: true,
+      updatedAt: finalizedTimestamp,
+    });
+
+    setSaveStatus('saving');
+    try {
+      if (isGuest) {
+        setGuestEntry(finalizedEntry);
+        setEntries((prev) => [finalizedEntry, ...prev.filter((e) => e.id !== finalizedEntry.id)]);
+      } else if (user) {
+        await saveJournalEntry(user.uid, finalizedEntry);
+        setEntries((prev) => [finalizedEntry, ...prev.filter((e) => e.id !== finalizedEntry.id)]);
+      }
+      pendingSyncEntryRef.current = null;
+      setSaveStatus('saved');
+      setErrorMessage(null);
+      setSaveToastMessage('✓ Reflection saved securely');
+
+      // On mobile viewports, unselect active entry to return to "My Reflections" feed
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        setSelectedEntryId(null);
+      }
+      if (isGuest) {
+        setShowGuestAccountPrompt(true);
+      }
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to save reflection');
+      setSaveStatus('error');
     }
   };
 
@@ -536,21 +608,22 @@ export function Dashboard({
   }, [entries, searchQuery, selectedMoodFilter]);
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-[#fafafa] relative">
-      {/* Sidebar */}
+    <div className="flex-1 flex overflow-hidden bg-[#fafafa] relative h-[100dvh] overscroll-y-contain">
+      {/* Sidebar (Left Rail: 280px on desktop) */}
       <aside
         id="history-sidebar"
-        className={`fixed md:static inset-y-0 left-0 z-20 w-80 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-transform duration-200 ease-out md:translate-x-0 ${
+        className={`fixed md:static inset-y-0 left-0 z-20 w-80 lg:w-[280px] shrink-0 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-transform duration-200 ease-out md:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="p-3.5 border-b border-zinc-200/50 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <div className="w-6 h-6 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-50 shadow-2xs">
-              <Sparkles className="w-3.5 h-3.5 text-zinc-100" />
+              <BookOpen className="w-3.5 h-3.5 text-zinc-100" />
             </div>
             <div className="flex items-baseline space-x-1.5">
               <span className="font-semibold text-zinc-900 text-xs tracking-tight">WriteFrankly</span>
+              <span className="text-[10px] font-medium text-zinc-400">Reflections</span>
             </div>
           </div>
           <div className="flex items-center space-x-1.5">
@@ -570,9 +643,10 @@ export function Dashboard({
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
             <input
+              ref={searchInputRef}
               id="sidebar-search-input"
               type="text"
-              placeholder="Search reflections..."
+              placeholder="Search reflections... (Mod+K)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-zinc-200/50 focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-hidden transition-all duration-150"
@@ -764,15 +838,92 @@ export function Dashboard({
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
         {activeEntry ? (
           <>
-            <div className="px-3 sm:px-6 py-2 sm:py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex flex-col gap-1.5 shrink-0 min-w-0">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 shrink-0 min-w-0">
-                <div className="flex items-center space-x-2 sm:space-x-2.5 flex-1 min-w-0">
+            {/* Mobile Viewport Header (48px / h-12, md:hidden) */}
+            <div
+              id="reflection-mobile-bar"
+              className="h-12 px-3 border-b border-zinc-200/60 bg-white/95 backdrop-blur-xl flex md:hidden items-center justify-between shrink-0 min-w-0"
+            >
+              <div className="flex items-center space-x-1.5 min-w-0 flex-1">
+                <button
+                  id="mobile-back-to-list-btn"
+                  data-alias="mobile-sidebar-toggle-btn"
+                  onClick={() => {
+                    flushPendingSync();
+                    setSelectedEntryId(null);
+                    if (onToggleSidebar && !sidebarOpen) {
+                      onToggleSidebar();
+                    }
+                  }}
+                  aria-label="Back to reflections feed"
+                  className="w-11 h-11 -ml-2 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                  title="Back to Reflections"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div className="flex items-center space-x-1.5 min-w-0 flex-1">
+                  <h2 className="font-semibold text-xs text-zinc-900 truncate">
+                    {activeEntry.title || 'Untitled Reflection'}
+                  </h2>
+                  <span
+                    title={
+                      saveStatus === 'saved'
+                        ? 'Saved ✓'
+                        : saveStatus === 'saving'
+                        ? 'Saving...'
+                        : 'Save error'
+                    }
+                    className="inline-flex shrink-0 items-center"
+                  >
+                    {saveStatus === 'saved' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    )}
+                    {saveStatus === 'saving' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    )}
+                    {saveStatus === 'error' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1 shrink-0">
+                <button
+                  id="mobile-header-tone-pill-btn"
+                  type="button"
+                  onClick={() => setIsPersonalitySettingsOpen(true)}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium flex items-center space-x-1 transition-colors cursor-pointer"
+                  title="Customize Frankly's Tone & Personality"
+                >
+                  <Sparkles className="w-3 h-3 text-zinc-500" />
+                  <span className="max-w-[85px] truncate">{getPersonaLabel(preferences.personality)}</span>
+                </button>
+                <button
+                  id="mobile-overflow-menu-btn"
+                  type="button"
+                  onClick={() => setMobileMenuOpen(true)}
+                  aria-label="Open reflection options"
+                  className="w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                  title="Options"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop & Tablet Header (hidden md:flex) */}
+            <div
+              id="reflection-desktop-bar"
+              className="hidden md:flex px-6 py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex-col gap-1.5 shrink-0 min-w-0"
+            >
+              <div className="flex items-center justify-between gap-4 shrink-0 min-w-0">
+                <div className="flex items-center space-x-2.5 flex-1 min-w-0">
                   {onToggleSidebar && (
                     <button
                       id="mobile-sidebar-toggle-btn"
                       onClick={onToggleSidebar}
                       aria-label="Toggle journal entries"
-                      className="md:hidden p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0"
+                      className="p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0 cursor-pointer"
                       title="Journal Entries"
                     >
                       <BookOpen className="w-4 h-4" />
@@ -791,7 +942,7 @@ export function Dashboard({
                     id="entry-mood-select"
                     value={activeEntry.mood}
                     onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
-                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0"
+                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0 cursor-pointer"
                   >
                     {MOODS.map((m) => (
                       <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
@@ -810,7 +961,7 @@ export function Dashboard({
                   </button>
                 </div>
 
-                <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                <div className="flex items-center space-x-2 shrink-0">
                   {isGuest && (
                     <div
                       title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
@@ -826,7 +977,7 @@ export function Dashboard({
                       <button
                         onClick={handleExportMarkdown}
                         title="Download as Markdown (.md)"
-                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Export .md</span>
@@ -834,7 +985,7 @@ export function Dashboard({
                       <button
                         onClick={handleCopyExportText}
                         title="Copy Raw Text to Clipboard"
-                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1"
+                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Copy Text</span>
@@ -845,7 +996,7 @@ export function Dashboard({
                       id="export-entry-btn"
                       onClick={handleExportMarkdown}
                       title="Export reflection as Markdown"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0 cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Export</span>
@@ -871,13 +1022,13 @@ export function Dashboard({
                       <button
                         id="confirm-delete-btn"
                         onClick={() => handleDeleteEntry(activeEntry.id)}
-                        className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors"
+                        className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors cursor-pointer"
                       >
                         Delete
                       </button>
                       <button
                         onClick={() => setDeleteConfirmId(null)}
-                        className="px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-300 transition-colors"
+                        className="px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-300 transition-colors cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -887,7 +1038,7 @@ export function Dashboard({
                       id="delete-entry-btn"
                       onClick={() => setDeleteConfirmId(activeEntry.id)}
                       title="Delete reflection"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors shrink-0"
+                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -954,250 +1105,365 @@ export function Dashboard({
               <GuestModeBanner onSignUp={signInWithGoogle} />
             )}
 
-            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6 bg-[#fafafa]">
-              {activeEntry.messages.length === 0 ? (
-                <div className="max-w-xl mx-auto text-center py-10">
-                  <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-3.5">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-base font-semibold text-zinc-900">Say what you actually think</h3>
-                  <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto leading-relaxed">
-                    No performance, no filtering, no fear of consequence. Write what is real.
-                  </p>
+            {/* Dual-Mode Body: Center Canvas + Desktop Right Rail */}
+            <div className="flex-1 flex overflow-hidden min-h-0">
+              {/* Center Canvas */}
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-6 space-y-6 bg-[#fafafa]">
+                  {activeEntry.messages.length === 0 ? (
+                    <div className="max-w-xl mx-auto text-center py-4 sm:py-8">
+                      <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-3.5">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-semibold text-zinc-900">Say what you actually think</h3>
+                      <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto leading-relaxed">
+                        No performance, no filtering, no fear of consequence. Write what is real.
+                      </p>
 
-                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-                    {getStartersForPersonality(preferences.personality).map((starter, idx) => (
-                      <button
-                        key={idx}
-                        id={`starter-prompt-btn-${idx}`}
-                        type="button"
-                        onClick={() => handleSelectStarter(starter)}
-                        title="Click to load into editor and customize before sending"
-                        className="p-3 rounded-2xl bg-white border border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs transition-all duration-150 text-left shadow-2xs flex items-start space-x-2 group cursor-pointer"
-                      >
-                        <Lightbulb className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5 group-hover:text-zinc-900 transition-colors" />
-                        <span className="leading-snug flex-1">{starter}</span>
-                        <span className="text-[10px] text-zinc-400 group-hover:text-zinc-700 shrink-0 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                          Edit
-                        </span>
-                      </button>
-                    ))}
+                      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                        {getStartersForPersonality(preferences.personality).map((starter, idx) => (
+                          <button
+                            key={idx}
+                            id={`starter-prompt-btn-${idx}`}
+                            type="button"
+                            onClick={() => handleSelectStarter(starter)}
+                            title="Click to load into editor and customize before sending"
+                            className="p-3 rounded-2xl bg-white border border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs transition-all duration-150 text-left shadow-2xs flex items-start space-x-2 group cursor-pointer"
+                          >
+                            <Lightbulb className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5 group-hover:text-zinc-900 transition-colors" />
+                            <span className="leading-snug flex-1">{starter}</span>
+                            <span className="text-[10px] text-zinc-400 group-hover:text-zinc-700 shrink-0 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                              Edit
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-2xl mx-auto space-y-5">
+                      {activeEntry.messages.map((msg) => (
+                        <div key={msg.id} id={`chat-message-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                          <div className="flex items-center space-x-2 mb-1 px-1">
+                            <span className="text-[10px] font-medium text-zinc-400">{msg.role === 'user' ? 'You' : 'WriteFrankly'}</span>
+                            {msg.mode && msg.mode !== 'general' && (
+                              <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200/60 capitalize">
+                                {msg.mode.replace('_', ' ')}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-zinc-400">
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+
+                          <div
+                            className={`relative group rounded-2xl p-4 text-sm transition-all duration-150 max-w-[92%] sm:max-w-[85%] ${
+                              msg.role === 'user' ? 'bg-zinc-900 text-zinc-50 shadow-2xs rounded-tr-xs' : 'bg-white border border-zinc-200/80 text-zinc-800 shadow-2xs rounded-tl-xs'
+                            }`}
+                          >
+                            {msg.role === 'user' ? (
+                              <p className="whitespace-pre-wrap leading-relaxed text-[13px]">{msg.content}</p>
+                            ) : (
+                              <div className="prose prose-zinc prose-sm max-w-none text-zinc-800 leading-relaxed space-y-2 text-[13px]">
+                                <Markdown>{msg.content}</Markdown>
+                              </div>
+                            )}
+
+                            <button
+                              id={`copy-msg-btn-${msg.id}`}
+                              onClick={() => handleCopyMessage(msg.id, msg.content)}
+                              title="Copy text"
+                              className={`absolute top-2.5 right-2.5 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ${
+                                msg.role === 'user' ? 'text-zinc-400 hover:text-white bg-zinc-800' : 'text-zinc-400 hover:text-zinc-800 bg-zinc-100'
+                              }`}
+                            >
+                              {copiedMessageId === msg.id ? <Check className="w-3 h-3 text-zinc-300" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {isGenerating && (
+                        <div className="flex items-start space-x-2 max-w-[85%]">
+                          <div className="p-3.5 rounded-2xl bg-white border border-zinc-200/80 text-zinc-600 rounded-tl-xs flex items-center space-x-2.5 shadow-2xs">
+                            <RefreshCw className="w-3.5 h-3.5 text-zinc-800 animate-spin" />
+                            <span className="text-xs font-medium text-zinc-700">Thinking frankly...</span>
+                          </div>
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions Bar */}
+                <div className="px-4 sm:px-6 pt-2 pb-1.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/50 shrink-0">
+                  <div className="max-w-2xl mx-auto flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
+                    <span className="text-[10px] font-medium text-zinc-400 shrink-0 mr-1">Actions:</span>
+                    {QUICK_ACTIONS.map((action) => {
+                      const Icon = action.icon;
+                      return (
+                        <button
+                          key={action.id}
+                          id={action.id}
+                          onClick={() => handleSendPrompt(action.prompt, action.mode)}
+                          disabled={isGenerating}
+                          className="px-2.5 py-1 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200/60 transition-colors shrink-0 flex items-center space-x-1 disabled:opacity-40 text-[11px] cursor-pointer"
+                        >
+                          <Icon className="w-3 h-3 text-zinc-600" />
+                          <span>{action.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              ) : (
-                <div className="max-w-2xl mx-auto space-y-5">
-                  {activeEntry.messages.map((msg) => (
-                    <div key={msg.id} id={`chat-message-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      <div className="flex items-center space-x-2 mb-1 px-1">
-                        <span className="text-[10px] font-medium text-zinc-400">{msg.role === 'user' ? 'You' : 'WriteFrankly'}</span>
-                        {msg.mode && msg.mode !== 'general' && (
-                          <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200/60 capitalize">
-                            {msg.mode.replace('_', ' ')}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-zinc-400">
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+
+                {/* Input Composer */}
+                <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
+                  {activeEntry.isFinalized ? (
+                    <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
+                      <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Reflection saved and finished</span>
                       </div>
-
-                      <div
-                        className={`relative group rounded-2xl p-4 text-sm transition-all duration-150 max-w-[92%] sm:max-w-[85%] ${
-                          msg.role === 'user' ? 'bg-zinc-900 text-zinc-50 shadow-2xs rounded-tr-xs' : 'bg-white border border-zinc-200/80 text-zinc-800 shadow-2xs rounded-tl-xs'
-                        }`}
-                      >
-                        {msg.role === 'user' ? (
-                          <p className="whitespace-pre-wrap leading-relaxed text-[13px]">{msg.content}</p>
-                        ) : (
-                          <div className="prose prose-zinc prose-sm max-w-none text-zinc-800 leading-relaxed space-y-2 text-[13px]">
-                            <Markdown>{msg.content}</Markdown>
-                          </div>
-                        )}
-
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
+                        This journal session has been ended and saved securely. You can start a new reflection, view your archive, or debrief with Frankly.
+                      </p>
+                      <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
+                        <span id="finalized-word-count">{editorWordCount.words.toLocaleString()} words</span>
+                        <span>•</span>
+                        <span id="finalized-char-count">{editorWordCount.characters.toLocaleString()} characters</span>
+                      </div>
+                      <div className="flex items-center space-x-2 pt-1 flex-wrap justify-center gap-2">
                         <button
-                          id={`copy-msg-btn-${msg.id}`}
-                          onClick={() => handleCopyMessage(msg.id, msg.content)}
-                          title="Copy text"
-                          className={`absolute top-2.5 right-2.5 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${
-                            msg.role === 'user' ? 'text-zinc-400 hover:text-white bg-zinc-800' : 'text-zinc-400 hover:text-zinc-800 bg-zinc-100'
-                          }`}
+                          type="button"
+                          id="finalized-new-entry-btn"
+                          onClick={handleCreateNewEntry}
+                          className="px-3.5 py-1.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-medium transition-colors shadow-2xs inline-flex items-center space-x-1.5 cursor-pointer"
+                          title="Start a new reflection"
                         >
-                          {copiedMessageId === msg.id ? <Check className="w-3 h-3 text-zinc-300" /> : <Copy className="w-3 h-3" />}
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ New Reflection</span>
+                        </button>
+                        <button
+                          type="button"
+                          id="finalized-history-btn"
+                          onClick={() => {
+                            if (onToggleSidebar) onToggleSidebar();
+                          }}
+                          className="px-3.5 py-1.5 rounded-full bg-white hover:bg-zinc-100 text-zinc-800 text-xs font-medium border border-zinc-200/80 shadow-2xs transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+                          title="View all reflections"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
+                          <span>My Reflections</span>
+                        </button>
+                        <button
+                          type="button"
+                          id="finalized-debrief-btn"
+                          onClick={() => {
+                            setCheckInTargetEntry(activeEntry);
+                            setIsCheckInHubOpen(true);
+                          }}
+                          className="px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-medium transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+                          title="Start an AI debrief about this reflection"
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Debrief with Frankly →</span>
                         </button>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="max-w-2xl mx-auto flex flex-col space-y-3">
+                      <div className="relative">
+                        <textarea
+                          ref={inputRef}
+                          id="reflection-input-textarea"
+                          rows={2}
+                          value={promptInput}
+                          onChange={(e) => setPromptInput(e.target.value)}
+                          onBlur={flushPendingSync}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendPrompt();
+                            }
+                          }}
+                          placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
+                          className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
+                        />
 
-                  {isGenerating && (
-                    <div className="flex items-start space-x-2 max-w-[85%]">
-                      <div className="p-3.5 rounded-2xl bg-white border border-zinc-200/80 text-zinc-600 rounded-tl-xs flex items-center space-x-2.5 shadow-2xs">
-                        <RefreshCw className="w-3.5 h-3.5 text-zinc-800 animate-spin" />
-                        <span className="text-xs font-medium text-zinc-700">Thinking frankly...</span>
+                        <button
+                          id="send-reflection-btn"
+                          onClick={() => handleSendPrompt()}
+                          disabled={!promptInput.trim() || isGenerating}
+                          aria-label="Send reflection to Gemini"
+                          className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs cursor-pointer"
+                        >
+                          {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      
+                      {/* Editor Footer: Soft Word & Character Count + Save & Finish */}
+                      <div id="editor-footer-bar" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-0.5">
+                        <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-500">
+                          <span id="editor-word-count" className="font-medium text-zinc-600">
+                            {editorWordCount.words.toLocaleString()} {editorWordCount.words === 1 ? 'word' : 'words'}
+                          </span>
+                          <span>•</span>
+                          <span id="editor-char-count">
+                            {editorWordCount.characters.toLocaleString()} {editorWordCount.characters === 1 ? 'character' : 'characters'}
+                          </span>
+                          {editorWordCount.words > 5000 && (
+                            <span
+                              id="word-count-limit-indicator"
+                              className="inline-flex items-center space-x-1 text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full text-[11px] font-medium animate-in fade-in duration-200"
+                            >
+                              <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>Approaching optimal reflection length.</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            id="footer-debrief-prompt-btn"
+                            onClick={() => {
+                              flushPendingSync();
+                              setCheckInTargetEntry(activeEntry);
+                              setIsCheckInHubOpen(true);
+                            }}
+                            className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition-colors border border-zinc-200/80 inline-flex items-center space-x-1.5 cursor-pointer"
+                            title="Explore an AI debrief for this reflection"
+                          >
+                            <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
+                            <span className="hidden xs:inline">Debrief with Frankly →</span>
+                            <span className="xs:hidden">Debrief →</span>
+                          </button>
+                          <button
+                            type="button"
+                            id="save-and-finish-btn"
+                            data-alias="end-and-save-btn"
+                            onClick={handleSaveAndFinish}
+                            className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
+                            title="Commit reflection and finish session"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Save & Finish</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
-                  <div ref={messagesEndRef} />
                 </div>
-              )}
-            </div>
-
-            {/* Actions Bar */}
-            <div className="px-4 sm:px-6 pt-2 pb-1.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/50 shrink-0">
-              <div className="max-w-2xl mx-auto flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
-                <span className="text-[10px] font-medium text-zinc-400 shrink-0 mr-1">Actions:</span>
-                {QUICK_ACTIONS.map((action) => {
-                  const Icon = action.icon;
-                  return (
-                    <button
-                      key={action.id}
-                      id={action.id}
-                      onClick={() => handleSendPrompt(action.prompt, action.mode)}
-                      disabled={isGenerating}
-                      className="px-2.5 py-1 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200/60 transition-colors shrink-0 flex items-center space-x-1 disabled:opacity-40 text-[11px]"
-                    >
-                      <Icon className="w-3 h-3 text-zinc-600" />
-                      <span>{action.label}</span>
-                    </button>
-                  );
-                })}
               </div>
-            </div>
 
-            {/* Input Composer */}
-            <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
-              {activeEntry.isFinalized ? (
-                <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
-                  <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Reflection saved and finished</span>
+              {/* Desktop 3rd Column (Right Rail: 300px, hidden on mobile & tablet) */}
+              <aside
+                id="desktop-right-rail"
+                className="w-[300px] shrink-0 border-l border-zinc-200/70 bg-zinc-50/60 p-4 space-y-4 hidden lg:flex lg:flex-col overflow-y-auto"
+              >
+                {/* Tone Posture Summary */}
+                <div className="bg-white rounded-2xl p-3.5 border border-zinc-200/80 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-6 h-6 rounded-lg bg-zinc-100 border border-zinc-200 flex items-center justify-center text-zinc-700">
+                        <Sparkles className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-xs font-semibold text-zinc-900">AI Tone Posture</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsPersonalitySettingsOpen(true)}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-900 font-medium flex items-center space-x-1 cursor-pointer"
+                      title="Customize Tone"
+                    >
+                      <Sliders className="w-3 h-3" />
+                      <span>Customize</span>
+                    </button>
                   </div>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
-                    This journal session has been ended and saved securely. You can start a new reflection, view your archive, or debrief with Frankly.
+                  <div>
+                    <h4 className="text-xs font-medium text-zinc-900">
+                      {getPersonaLabel(preferences.personality)}
+                    </h4>
+                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                      {preferences.personality === 'warm_confidant'
+                        ? 'Empathetic, non-judgmental space for emotional clarity and unconditional support.'
+                        : preferences.personality === 'objective_challenger'
+                        ? 'Rigorous, pragmatic accountability. Unpacks unexamined assumptions directly.'
+                        : 'Reflective, philosophical inquiry using targeted Socratic questions.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Metadata Inspector */}
+                <div className="bg-white rounded-2xl p-3.5 border border-zinc-200/80 shadow-2xs space-y-3">
+                  <span className="text-xs font-semibold text-zinc-900 block">Reflection Metadata</span>
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 text-[11px]">Current Mood</span>
+                      <select
+                        value={activeEntry.mood}
+                        onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
+                        className="text-xs px-2 py-0.5 rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-800 font-medium cursor-pointer"
+                      >
+                        {MOODS.map((m) => (
+                          <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 text-[11px]">Location</span>
+                      <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
+                      <span className="text-zinc-500 text-[11px]">Volume</span>
+                      <span className="font-medium text-zinc-700 text-[11px]">
+                        {editorWordCount.words.toLocaleString()} words • {editorWordCount.characters.toLocaleString()} chars
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 text-[11px]">Created</span>
+                      <span className="text-zinc-500 text-[11px] truncate max-w-[140px]" title={formatDateTime(activeEntry.createdAt)}>
+                        {formatDateTime(activeEntry.createdAt)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 text-[11px]">Last Saved</span>
+                      <span className="text-zinc-500 text-[11px] truncate max-w-[140px]" title={formatDateTime(activeEntry.updatedAt || activeEntry.createdAt)}>
+                        {formatTimeOnly(activeEntry.updatedAt || activeEntry.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Debrief Trigger Card */}
+                <div className="bg-gradient-to-br from-indigo-50/80 to-purple-50/50 rounded-2xl p-3.5 border border-indigo-100/90 shadow-2xs space-y-2.5">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                      <ClipboardCheck className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-semibold text-zinc-900">Holistic Debrief</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-600 leading-relaxed">
+                    Ready to synthesize? Unpack tensions, examine cognitive patterns, or find clarity with Frankly.
                   </p>
-                  <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
-                    <span id="finalized-word-count">{editorWordCount.words.toLocaleString()} words</span>
-                    <span>•</span>
-                    <span id="finalized-char-count">{editorWordCount.characters.toLocaleString()} characters</span>
-                  </div>
-                  <div className="flex items-center space-x-2 pt-1 flex-wrap justify-center gap-2">
-                    <button
-                      type="button"
-                      id="finalized-new-entry-btn"
-                      onClick={handleCreateNewEntry}
-                      className="px-3.5 py-1.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-medium transition-colors shadow-2xs inline-flex items-center space-x-1.5 cursor-pointer"
-                      title="Start a new reflection"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>+ New Reflection</span>
-                    </button>
-                    <button
-                      type="button"
-                      id="finalized-history-btn"
-                      onClick={() => {
-                        if (onToggleSidebar) onToggleSidebar();
-                      }}
-                      className="px-3.5 py-1.5 rounded-full bg-white hover:bg-zinc-100 text-zinc-800 text-xs font-medium border border-zinc-200/80 shadow-2xs transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
-                      title="View all reflections"
-                    >
-                      <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
-                      <span>My Reflections</span>
-                    </button>
-                    <button
-                      type="button"
-                      id="finalized-debrief-btn"
-                      onClick={() => {
-                        setCheckInTargetEntry(activeEntry);
-                        setIsCheckInHubOpen(true);
-                      }}
-                      className="px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-medium transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
-                      title="Start an AI debrief about this reflection"
-                    >
-                      <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Debrief with Frankly →</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    id="rail-entry-debrief-btn"
+                    onClick={() => {
+                      flushPendingSync();
+                      setCheckInTargetEntry(activeEntry);
+                      setIsCheckInHubOpen(true);
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-zinc-900 hover:bg-black text-zinc-50 text-xs font-medium transition-colors flex items-center justify-center space-x-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
+                    <span>Debrief with Frankly</span>
+                  </button>
                 </div>
-              ) : (
-                <div className="max-w-2xl mx-auto flex flex-col space-y-3">
-                  <div className="relative">
-                    <textarea
-                      ref={inputRef}
-                      id="reflection-input-textarea"
-                      rows={2}
-                      value={promptInput}
-                      onChange={(e) => setPromptInput(e.target.value)}
-                      onBlur={flushPendingSync}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendPrompt();
-                        }
-                      }}
-                      placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
-                      className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
-                    />
-
-                    <button
-                      id="send-reflection-btn"
-                      onClick={() => handleSendPrompt()}
-                      disabled={!promptInput.trim() || isGenerating}
-                      aria-label="Send reflection to Gemini"
-                      className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs cursor-pointer"
-                    >
-                      {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  
-                  {/* Editor Footer: Soft Word & Character Count + Save & Finish */}
-                  <div id="editor-footer-bar" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-0.5">
-                    <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-500">
-                      <span id="editor-word-count" className="font-medium text-zinc-600">
-                        {editorWordCount.words.toLocaleString()} {editorWordCount.words === 1 ? 'word' : 'words'}
-                      </span>
-                      <span>•</span>
-                      <span id="editor-char-count">
-                        {editorWordCount.characters.toLocaleString()} {editorWordCount.characters === 1 ? 'character' : 'characters'}
-                      </span>
-                      {editorWordCount.words > 5000 && (
-                        <span
-                          id="word-count-limit-indicator"
-                          className="inline-flex items-center space-x-1 text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full text-[11px] font-medium animate-in fade-in duration-200"
-                        >
-                          <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                          <span>Approaching optimal reflection length.</span>
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2 self-end sm:self-auto">
-                      <button
-                        type="button"
-                        id="footer-debrief-prompt-btn"
-                        onClick={() => {
-                          flushPendingSync();
-                          setCheckInTargetEntry(activeEntry);
-                          setIsCheckInHubOpen(true);
-                        }}
-                        className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition-colors border border-zinc-200/80 inline-flex items-center space-x-1.5 cursor-pointer"
-                        title="Explore an AI debrief for this reflection"
-                      >
-                        <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
-                        <span className="hidden xs:inline">Debrief with Frankly →</span>
-                        <span className="xs:hidden">Debrief →</span>
-                      </button>
-                      <button
-                        type="button"
-                        id="save-and-finish-btn"
-                        data-alias="end-and-save-btn"
-                        onClick={handleSaveAndFinish}
-                        className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
-                        title="Commit reflection and finish session"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Save & Finish</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              </aside>
             </div>
           </>
         ) : (
@@ -1210,7 +1476,7 @@ export function Dashboard({
                     id="empty-mobile-sidebar-toggle-btn"
                     onClick={onToggleSidebar}
                     aria-label="Toggle journal entries"
-                    className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors"
+                    className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors cursor-pointer"
                     title="Journal Entries"
                   >
                     <BookOpen className="w-4 h-4" />
@@ -1271,6 +1537,181 @@ export function Dashboard({
           </div>
         )}
       </main>
+
+      {/* Mobile Overflow Bottom Sheet */}
+      {mobileMenuOpen && activeEntry && (
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              setDeleteConfirmId(null);
+            }}
+          />
+
+          {/* Slide-up Sheet */}
+          <div
+            id="mobile-overflow-sheet"
+            className="relative z-10 bg-white rounded-t-3xl shadow-2xl border-t border-zinc-200 p-4 space-y-4 max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
+          >
+            {/* Pull / Drag Indicator */}
+            <div className="w-10 h-1 rounded-full bg-zinc-300 mx-auto -mt-1 mb-2" />
+
+            {/* Sheet Header */}
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-zinc-900 truncate">
+                  {activeEntry.title || 'Untitled Reflection'}
+                </h3>
+                <p className="text-[11px] text-zinc-400">Reflection Options</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setDeleteConfirmId(null);
+                }}
+                aria-label="Close options"
+                className="w-10 h-10 -mr-2 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sheet Controls */}
+            <div className="space-y-3 text-xs">
+              {/* Mood Picker */}
+              <div>
+                <label htmlFor="mobile-entry-mood-select" className="block text-[11px] font-medium text-zinc-500 mb-1">
+                  Mood
+                </label>
+                <select
+                  id="mobile-entry-mood-select"
+                  value={activeEntry.mood}
+                  onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-800 font-medium focus:outline-hidden cursor-pointer"
+                >
+                  {MOODS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Location Tag */}
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                  Location
+                </label>
+                <div className="flex items-center">
+                  <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
+                </div>
+              </div>
+
+              {/* AI Personality Setting */}
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                  AI Personality
+                </label>
+                <button
+                  type="button"
+                  id="mobile-sheet-tone-btn"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setIsPersonalitySettingsOpen(true);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-medium transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>{getPersonaLabel(preferences.personality)}</span>
+                  </div>
+                  <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+                </button>
+              </div>
+
+              {/* Debrief Button */}
+              <button
+                type="button"
+                id="mobile-sheet-debrief-btn"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  flushPendingSync();
+                  setCheckInTargetEntry(activeEntry);
+                  setIsCheckInHubOpen(true);
+                }}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-zinc-900 text-white font-medium hover:bg-zinc-800 transition-colors shadow-2xs cursor-pointer"
+              >
+                <ClipboardCheck className="w-4 h-4 text-zinc-300" />
+                <span>Debrief with Frankly</span>
+              </button>
+
+              {/* Export & Copy Options */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  id="mobile-sheet-export-btn"
+                  onClick={() => {
+                    handleExportMarkdown();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Export .md</span>
+                </button>
+                <button
+                  type="button"
+                  id="mobile-sheet-copy-btn"
+                  onClick={() => {
+                    handleCopyExportText();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium transition-colors cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Copy Text</span>
+                </button>
+              </div>
+
+              {/* Delete Entry */}
+              <div className="pt-2 border-t border-zinc-100">
+                {deleteConfirmId === activeEntry.id ? (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      id="mobile-sheet-confirm-delete-btn"
+                      onClick={() => {
+                        handleDeleteEntry(activeEntry.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-medium transition-colors text-center cursor-pointer"
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    id="mobile-sheet-delete-btn"
+                    onClick={() => setDeleteConfirmId(activeEntry.id)}
+                    className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors font-medium cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>Delete Reflection</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+      )}
 
       {/* Independent Global Check-in Hub Modal */}
       {isCheckInHubOpen && (

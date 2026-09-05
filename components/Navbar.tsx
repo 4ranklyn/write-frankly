@@ -52,10 +52,10 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
                 id="nav-checkin-hub-btn"
                 onClick={onOpenCheckInHub}
                 className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
-                title="Open History & Debrief"
+                title="Open Journal Entries & Debrief"
               >
-                <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
-                <span>History & Debrief</span>
+                <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Journal Entries</span>
               </button>
             )}
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
-import { UserPreferences } from '@/types/journal';
+import { UserPreferences, normalizePersonality } from '@/types/journal';
 import {
   loadUserPreferences,
   saveUserPreferences,
@@ -19,9 +19,13 @@ export function usePreferences() {
   const { user } = useAuth();
   const isGuest = !user || !user.uid || user.uid.startsWith('guest_') || Boolean(user.isAnonymous);
 
-  const [preferences, setPreferences] = useState<UserPreferences>(() =>
-    loadLocalPreferences(user?.uid)
-  );
+  const [preferences, setPreferences] = useState<UserPreferences>(() => {
+    const initial = loadLocalPreferences(user?.uid);
+    return {
+      ...initial,
+      personality: normalizePersonality(initial.personality),
+    };
+  });
   const [loading, setLoading] = useState<boolean>(false);
 
   useEffect(() => {
@@ -33,7 +37,10 @@ export function usePreferences() {
         // Load directly from localStorage, do not query Firestore
         const local = loadLocalPreferences(user?.uid);
         if (isMounted) {
-          setPreferences(local);
+          setPreferences({
+            ...local,
+            personality: normalizePersonality(local.personality),
+          });
         }
         return;
       }
@@ -42,7 +49,10 @@ export function usePreferences() {
       try {
         const remote = await loadUserPreferences(user?.uid);
         if (isMounted && remote) {
-          setPreferences(remote);
+          setPreferences({
+            ...remote,
+            personality: normalizePersonality(remote.personality),
+          });
         }
       } catch (err) {
         console.warn('Preferences fetch error:', err);
@@ -62,9 +72,13 @@ export function usePreferences() {
 
   const updatePreferences = useCallback(
     async (newPrefs: UserPreferences) => {
-      setPreferences(newPrefs);
+      const sanitizedPrefs: UserPreferences = {
+        ...newPrefs,
+        personality: normalizePersonality(newPrefs.personality),
+      };
+      setPreferences(sanitizedPrefs);
       if (user?.uid) {
-        await saveUserPreferences(user.uid, newPrefs);
+        await saveUserPreferences(user.uid, sanitizedPrefs);
       }
     },
     [user]

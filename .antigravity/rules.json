@@ -99,6 +99,20 @@
         "Every interactive UI trigger (buttons, forms, toggles, debrief flows) must include concrete user walkthrough test steps.",
         "Document expected visual states, pending states, error escalations, and deterministic transition outcomes."
       ]
+    },
+    {
+      "id": "adaptive-pwa-design",
+      "name": "Adaptive PWA & Ergonomics Standard",
+      "description": "Enforce distinct mobile thumb ergonomics and desktop multi-column layouts across standalone and web viewports.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Follow adaptive PWA architecture: use single-focus canvas + bottom sheets for mobile (<768px), and 2-column or 3-column master-detail layout for desktop (>=1024px).",
+        "Respect mobile safe-area insets, dynamic viewport heights (100dvh), and touch target minimums (44x44px).",
+        "Implement desktop keyboard accelerators (Mod+Enter to save, Escape to dismiss) and pointer hover isolation.",
+        "Support offline-first local persistence before triggering cloud network requests."
+      ],
+      "skillRef": "skills/adaptive-pwa/SKILL.md"
     }
   ]
 }
