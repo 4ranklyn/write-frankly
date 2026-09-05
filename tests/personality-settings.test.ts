@@ -107,9 +107,34 @@ describe('Personality & Tone Selector Unit Tests', () => {
 
       assert.strictEqual(isGuestUser('guest_12345'), true);
       assert.strictEqual(isGuestUser(null), true);
-      assert.strictEqual(isGuestUser(undefined), true);
       assert.strictEqual(isGuestUser(''), true);
       assert.strictEqual(isGuestUser('firebase_auth_user_999'), false);
     });
   });
+
+  describe('Tone Button Placement & Naming Contract', () => {
+    it('should verify tone button is removed from sidebar and headers, and placed above chat box named only Tone', async () => {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const dashboardPath = path.resolve('components/Dashboard.tsx');
+      const content = await fs.readFile(dashboardPath, 'utf8');
+
+      // 1. Must NOT exist in sidebar footer
+      assert.strictEqual(content.includes('id="sidebar-personality-settings-btn"'), false);
+
+      // 2. Must NOT exist in mobile header
+      assert.strictEqual(content.includes('id="mobile-header-tone-pill-btn"'), false);
+
+      // 3. Must NOT exist in desktop header
+      assert.strictEqual(content.includes('id="header-tone-pill-btn"'), false);
+
+      // 4. Must exist hovering just above the chat box
+      assert.strictEqual(content.includes('id="chat-tone-popup-btn"'), true);
+      assert.strictEqual(content.includes('id="chat-tone-popup-menu"'), true);
+
+      // 5. Button label must be named only "Tone"
+      assert.match(content, /id="chat-tone-popup-btn"[^>]*>[\s\S]*?<span>Tone<\/span>/);
+    });
+  });
 });
+

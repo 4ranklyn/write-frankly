@@ -29,7 +29,7 @@ import { useLocation } from '@/hooks/useLocation';
 import { useAutoSync } from '@/hooks/useAutoSync';
 import { LocationTag } from '@/components/LocationTag';
 import { CheckInHub } from '@/components/CheckInHub';
-import { PersonalitySettings } from '@/components/PersonalitySettings';
+import { PersonalitySettings, PERSONALITY_OPTIONS } from '@/components/PersonalitySettings';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { usePreferences } from '@/hooks/usePreferences';
 import { GuestModeBanner } from '@/components/GuestModeBanner';
@@ -88,6 +88,7 @@ export function Dashboard({
   const [saveToastMessage, setSaveToastMessage] = useState<string | null>(null);
   const [isRetryingSave, setIsRetryingSave] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isTonePopUpOpen, setIsTonePopUpOpen] = useState(false);
 
   const { preferences, updatePreferences: handleUpdatePreferences } = usePreferences();
   const [isPersonalitySettingsOpen, setIsPersonalitySettingsOpen] = useState(false);
@@ -153,7 +154,9 @@ export function Dashboard({
 
       // Escape: Close open drawers, modals, or overflow sheets
       if (e.key === 'Escape') {
-        if (mobileMenuOpen) {
+        if (isTonePopUpOpen) {
+          setIsTonePopUpOpen(false);
+        } else if (mobileMenuOpen) {
           setMobileMenuOpen(false);
           setDeleteConfirmId(null);
         } else if (isPersonalitySettingsOpen) {
@@ -166,7 +169,7 @@ export function Dashboard({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mobileMenuOpen, isPersonalitySettingsOpen, isCheckInHubOpen]);
+  }, [isTonePopUpOpen, mobileMenuOpen, isPersonalitySettingsOpen, isCheckInHubOpen]);
 
   const handleSelectStarter = (starter: string) => {
     setPromptInput(starter);
@@ -752,20 +755,6 @@ export function Dashboard({
             <PWAInstallButton variant="sidebar" />
           </div>
 
-          <button
-            id="sidebar-personality-settings-btn"
-            type="button"
-            onClick={() => setIsPersonalitySettingsOpen(true)}
-            className="w-full mb-2.5 px-2.5 py-1.5 rounded-xl border border-zinc-200/80 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium flex items-center justify-between transition-colors shadow-2xs cursor-pointer"
-            title="Customize Frankly's Tone & Personality"
-          >
-            <div className="flex items-center space-x-2">
-              <Sparkles className="w-3.5 h-3.5 text-zinc-700" />
-              <span>Tone: <strong className="font-semibold text-zinc-900">{getPersonaLabel(preferences.personality)}</strong></span>
-            </div>
-            <Sliders className="w-3.5 h-3.5 text-zinc-400" />
-          </button>
-
           {user && !isGuest ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2.5 min-w-0">
@@ -889,16 +878,6 @@ export function Dashboard({
 
               <div className="flex items-center space-x-1 shrink-0">
                 <button
-                  id="mobile-header-tone-pill-btn"
-                  type="button"
-                  onClick={() => setIsPersonalitySettingsOpen(true)}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium flex items-center space-x-1 transition-colors cursor-pointer"
-                  title="Customize Frankly's Tone & Personality"
-                >
-                  <Sparkles className="w-3 h-3 text-zinc-500" />
-                  <span className="max-w-[85px] truncate">{getPersonaLabel(preferences.personality)}</span>
-                </button>
-                <button
                   id="mobile-overflow-menu-btn"
                   type="button"
                   onClick={() => setMobileMenuOpen(true)}
@@ -949,16 +928,6 @@ export function Dashboard({
                     ))}
                   </select>
                   <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
-                  <button
-                    id="header-tone-pill-btn"
-                    type="button"
-                    onClick={() => setIsPersonalitySettingsOpen(true)}
-                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 font-medium flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer"
-                    title="Customize Frankly's Tone & Personality"
-                  >
-                    <Sparkles className="w-3 h-3 text-zinc-500" />
-                    <span>{getPersonaLabel(preferences.personality)}</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center space-x-2 shrink-0">
@@ -1272,7 +1241,92 @@ export function Dashboard({
                       </div>
                     </div>
                   ) : (
-                    <div className="max-w-2xl mx-auto flex flex-col space-y-3">
+                    <div className="max-w-2xl mx-auto flex flex-col space-y-2">
+                      {/* Tone Pop-Up Button hovering just above the chat box */}
+                      <div className="flex items-center justify-between px-0.5">
+                        <div className="relative">
+                          <button
+                            id="chat-tone-popup-btn"
+                            type="button"
+                            onClick={() => setIsTonePopUpOpen((prev) => !prev)}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 active:bg-zinc-100 text-zinc-800 dark:text-zinc-200 text-xs font-medium border border-zinc-200/90 dark:border-zinc-700 shadow-2xs transition-all duration-150 cursor-pointer"
+                            title="Tone"
+                            aria-haspopup="true"
+                            aria-expanded={isTonePopUpOpen}
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+                            <span>Tone</span>
+                          </button>
+
+                          {/* Pop-up Menu hovering directly above the chat box */}
+                          {isTonePopUpOpen && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-30"
+                                onClick={() => setIsTonePopUpOpen(false)}
+                              />
+                              <div
+                                id="chat-tone-popup-menu"
+                                className="absolute bottom-full left-0 mb-2 z-40 w-64 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 shadow-xl p-2 space-y-1 text-xs animate-in fade-in slide-in-from-bottom-2 duration-150"
+                              >
+                                <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800">
+                                  <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-xs">Tone</span>
+                                  <button
+                                    type="button"
+                                    id="chat-tone-more-settings-btn"
+                                    onClick={() => {
+                                      setIsTonePopUpOpen(false);
+                                      setIsPersonalitySettingsOpen(true);
+                                    }}
+                                    className="text-[10px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 font-medium flex items-center space-x-1 cursor-pointer"
+                                    title="Open tone settings modal"
+                                  >
+                                    <Sliders className="w-3 h-3" />
+                                    <span>Customize</span>
+                                  </button>
+                                </div>
+
+                                <div className="space-y-0.5 pt-0.5">
+                                  {PERSONALITY_OPTIONS.map((opt) => {
+                                    const isActive = normalizePersonality(preferences.personality) === opt.id;
+                                    return (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        id={`tone-option-${opt.id}`}
+                                        onClick={async () => {
+                                          await handleUpdatePreferences({
+                                            ...preferences,
+                                            personality: opt.id,
+                                          });
+                                          setIsTonePopUpOpen(false);
+                                          setSaveToastMessage(`Tone set to ${opt.label}`);
+                                        }}
+                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left transition-colors cursor-pointer ${
+                                          isActive
+                                            ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium shadow-2xs'
+                                            : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex-1 pr-2">
+                                          <p className={`text-xs ${isActive ? 'text-white dark:text-zinc-900 font-semibold' : 'text-zinc-900 dark:text-zinc-100 font-medium'}`}>
+                                            {opt.label}
+                                          </p>
+                                          <p className={`text-[10px] truncate ${isActive ? 'text-zinc-300 dark:text-zinc-600' : 'text-zinc-400'}`}>
+                                            {opt.tagline}
+                                          </p>
+                                        </div>
+                                        {isActive && <Check className="w-3.5 h-3.5 text-white dark:text-zinc-900 shrink-0" />}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="relative">
                         <textarea
                           ref={inputRef}
