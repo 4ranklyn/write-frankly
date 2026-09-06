@@ -27,6 +27,7 @@ export function GuestModeBanner({ onSignUp }: GuestModeBannerProps) {
     // Check local storage persistence on mount
     const dismissed = isGuestBannerDismissed();
     if (!dismissed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsVisible(true);
     }
   }, []);

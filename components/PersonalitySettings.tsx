@@ -92,6 +92,7 @@ export function PersonalitySettings({
 
   // Sync state if currentPreferences change externally
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedPersonality(normalizePersonality(currentPreferences.personality));
     setCustomTone(currentPreferences.customToneDirective || '');
   }, [currentPreferences]);

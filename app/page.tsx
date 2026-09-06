@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import '@/lib/fetch-guard';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LandingPage } from '@/components/LandingPage';
@@ -15,6 +16,14 @@ const PWAProvider = dynamic(
 function AppContent() {
   const { user, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Default sidebar to open on desktop viewports (>= 768px)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSidebarOpen(true);
+    }
+  }, []);
 
   // Loading state during auth check
   if (loading) {

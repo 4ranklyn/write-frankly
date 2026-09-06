@@ -15,7 +15,7 @@ import {
   STARTERS_BY_PERSONALITY,
 } from '@/types/journal';
 import { subscribeToUserEntries, saveJournalEntry, deleteJournalEntry } from '@/lib/journal-service';
-import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly } from '@/lib/utils';
+import { getCurrentTimestamp, generateUniqueId, formatDateTime, formatTimeOnly, formatDisplayLocation } from '@/lib/utils';
 import { sanitizePayload } from '@/lib/sanitizer';
 import {
   Sparkles, Plus, Trash2, Download, Send, Search,
@@ -127,49 +127,6 @@ export function Dashboard({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-
-  // Keyboard accelerators (adaptive-pwa)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Mod+Enter (Cmd+Enter / Ctrl+Enter): Save & Finish
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleSaveAndFinish();
-        return;
-      }
-
-      // Mod+S: Manual trigger save/sync
-      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
-        e.preventDefault();
-        flushPendingSync();
-        return;
-      }
-
-      // Mod+K: Focus reflection search / switcher
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-
-      // Escape: Close open drawers, modals, or overflow sheets
-      if (e.key === 'Escape') {
-        if (isTonePopUpOpen) {
-          setIsTonePopUpOpen(false);
-        } else if (mobileMenuOpen) {
-          setMobileMenuOpen(false);
-          setDeleteConfirmId(null);
-        } else if (isPersonalitySettingsOpen) {
-          setIsPersonalitySettingsOpen(false);
-        } else if (isCheckInHubOpen) {
-          setIsCheckInHubOpen(false);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isTonePopUpOpen, mobileMenuOpen, isPersonalitySettingsOpen, isCheckInHubOpen]);
 
   const handleSelectStarter = (starter: string) => {
     setPromptInput(starter);
@@ -374,6 +331,57 @@ export function Dashboard({
       setSaveStatus('error');
     }
   };
+
+  const handleSaveAndFinishRef = useRef(handleSaveAndFinish);
+  const flushPendingSyncRef = useRef(flushPendingSync);
+
+  useEffect(() => {
+    handleSaveAndFinishRef.current = handleSaveAndFinish;
+    flushPendingSyncRef.current = flushPendingSync;
+  });
+
+  // Keyboard accelerators (adaptive-pwa)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Mod+Enter (Cmd+Enter / Ctrl+Enter): Save & Finish
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSaveAndFinishRef.current();
+        return;
+      }
+
+      // Mod+S: Manual trigger save/sync
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        flushPendingSyncRef.current();
+        return;
+      }
+
+      // Mod+K: Focus reflection search / switcher
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      // Escape: Close open drawers, modals, or overflow sheets
+      if (e.key === 'Escape') {
+        if (isTonePopUpOpen) {
+          setIsTonePopUpOpen(false);
+        } else if (mobileMenuOpen) {
+          setMobileMenuOpen(false);
+          setDeleteConfirmId(null);
+        } else if (isPersonalitySettingsOpen) {
+          setIsPersonalitySettingsOpen(false);
+        } else if (isCheckInHubOpen) {
+          setIsCheckInHubOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isTonePopUpOpen, mobileMenuOpen, isPersonalitySettingsOpen, isCheckInHubOpen]);
 
   const handleRetrySave = async () => {
     if (isRetryingSave || !activeEntry) return;
@@ -612,28 +620,40 @@ export function Dashboard({
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[#fafafa] relative h-[100dvh] overscroll-y-contain">
-      {/* Sidebar (Left Rail: 280px on desktop) */}
+      {/* Sidebar (Left Rail: spacious 320px, with compact streamlined div heights) */}
       <aside
         id="history-sidebar"
-        className={`fixed md:static inset-y-0 left-0 z-20 w-80 lg:w-[280px] shrink-0 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-transform duration-200 ease-out md:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed md:static inset-y-0 left-0 z-20 w-80 lg:w-[320px] shrink-0 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-all duration-200 ease-out ${
+          sidebarOpen ? 'translate-x-0 md:translate-x-0' : '-translate-x-full md:hidden'
         }`}
       >
-        <div className="p-3.5 border-b border-zinc-200/50 flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-6 h-6 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-50 shadow-2xs">
-              <BookOpen className="w-3.5 h-3.5 text-zinc-100" />
-            </div>
-            <div className="flex items-baseline space-x-1.5">
+        <div className="px-3 py-1.5 border-b border-zinc-200/50 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            {onToggleSidebar ? (
+              <button
+                id="mobile-sidebar-toggle-btn"
+                onClick={onToggleSidebar}
+                aria-label={sidebarOpen ? 'Collapse journal entries' : 'Expand journal entries'}
+                aria-expanded={sidebarOpen}
+                title={sidebarOpen ? 'Collapse Journal Entries' : 'Expand Journal Entries'}
+                className="w-6 h-6 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:bg-black flex items-center justify-center text-zinc-50 shadow-2xs transition-colors cursor-pointer group"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-zinc-100 group-hover:scale-105 transition-transform" />
+              </button>
+            ) : (
+              <div className="w-6 h-6 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-50 shadow-2xs">
+                <BookOpen className="w-3.5 h-3.5 text-zinc-100" />
+              </div>
+            )}
+            <div className="flex items-baseline">
               <span className="font-semibold text-zinc-900 text-xs tracking-tight">WriteFrankly</span>
-              <span className="text-[10px] font-medium text-zinc-400">Reflections</span>
             </div>
           </div>
           <div className="flex items-center space-x-1.5">
             <button
               id="sidebar-new-entry-btn"
               onClick={handleCreateNewEntry}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-200 shadow-2xs cursor-pointer"
+              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-[11px] font-medium transition-all duration-200 shadow-2xs cursor-pointer"
               title="Create New Reflection"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -642,9 +662,9 @@ export function Dashboard({
           </div>
         </div>
 
-        <div className="p-3 border-b border-zinc-200/50">
+        <div className="px-3 py-1.5 border-b border-zinc-200/50">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1.5" />
             <input
               ref={searchInputRef}
               id="sidebar-search-input"
@@ -652,11 +672,11 @@ export function Dashboard({
               placeholder="Search reflections... (Mod+K)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-zinc-200/50 focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-hidden transition-all duration-150"
+              className="w-full pl-8 pr-2.5 py-1 rounded-xl bg-zinc-200/50 focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-hidden transition-all duration-150"
             />
           </div>
 
-          <div className="flex items-center space-x-1 mt-2.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+          <div className="flex items-center space-x-1 mt-1.5 overflow-x-auto pb-0.5 scrollbar-none text-[11px]">
             {[{ value: 'all', label: `All (${entries.length})`, icon: '' }, ...MOODS].map((m) => {
               const active = selectedMoodFilter === m.value;
               return (
@@ -664,7 +684,7 @@ export function Dashboard({
                   key={m.value}
                   id={`filter-mood-${m.value}`}
                   onClick={() => setSelectedMoodFilter(m.value)}
-                  className={`px-2.5 py-0.5 rounded-full border transition-all duration-150 shrink-0 ${
+                  className={`px-2 py-0.5 rounded-full border transition-all duration-150 shrink-0 ${
                     active ? 'bg-zinc-900 text-zinc-50 border-zinc-900 font-medium' : 'bg-white/80 text-zinc-600 border-zinc-200/80 hover:bg-white'
                   }`}
                 >
@@ -675,18 +695,20 @@ export function Dashboard({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1.5">
           {filteredEntries.length === 0 ? (
-            <div className="text-center py-12 px-4 text-zinc-400">
-              <Compass className="w-7 h-7 mx-auto text-zinc-300 mb-2 stroke-1" />
-              <p className="text-xs font-medium text-zinc-600">No reflections found</p>
-              <p className="text-[11px] text-zinc-400 mt-0.5">
-                {searchQuery ? 'Try a different search term' : 'Create your first reflection'}
+            <div className="text-center py-10 px-4 text-zinc-400">
+              <div className="w-9 h-9 mx-auto rounded-full bg-zinc-100 flex items-center justify-center mb-2.5">
+                <Compass className="w-4.5 h-4.5 text-zinc-400 stroke-[1.5]" />
+              </div>
+              <p className="text-xs font-semibold text-zinc-700">No reflections found</p>
+              <p className="text-[11px] text-zinc-400 mt-0.5 max-w-[200px] mx-auto">
+                {searchQuery ? 'Try a different search term or filter' : 'Your written thoughts and reflections will appear here'}
               </p>
               {!searchQuery && (
                 <button
                   onClick={handleCreateNewEntry}
-                  className="mt-3 px-3 py-1 rounded-full bg-zinc-900 text-zinc-50 text-xs font-medium hover:bg-zinc-800 transition-colors inline-flex items-center space-x-1"
+                  className="mt-3 px-3 py-1 rounded-full bg-zinc-900 text-zinc-50 text-xs font-medium hover:bg-zinc-800 transition-colors inline-flex items-center space-x-1 shadow-2xs"
                 >
                   <Plus className="w-3 h-3" />
                   <span>Start Reflecting</span>
@@ -702,44 +724,47 @@ export function Dashboard({
                   key={entry.id}
                   id={`entry-item-${entry.id}`}
                   onClick={() => handleSelectEntry(entry)}
-                  className={`p-2.5 rounded-xl border transition-all duration-150 cursor-pointer text-left ${
-                    isSelected ? 'bg-white border-zinc-300 shadow-2xs' : 'bg-transparent hover:bg-white/60 border-transparent hover:border-zinc-200/60'
+                  className={`group relative p-2.5 rounded-xl border transition-all duration-150 cursor-pointer text-left ${
+                    isSelected
+                      ? 'bg-white border-zinc-300 shadow-2xs ring-1 ring-zinc-950/5'
+                      : 'bg-white/40 hover:bg-white/80 border-zinc-200/50 hover:border-zinc-200/90 hover:shadow-2xs'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <h3 className={`text-xs truncate pr-2 ${isSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-800 font-medium'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className={`text-xs truncate font-medium ${isSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-800'}`}>
                       {entry.title || 'Untitled Reflection'}
                     </h3>
-                    <span id={`entry-timestamp-${entry.id}`} className="text-[10px] text-zinc-400 shrink-0 font-normal">
+                    <span id={`entry-timestamp-${entry.id}`} className="text-[10.5px] text-zinc-400 shrink-0 font-normal tabular-nums">
                       {formatDateTime(entry.createdAt)}
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 truncate mt-1">
+                  <p className="text-[11px] text-zinc-500 truncate mt-1 leading-normal">
                     {entry.initialThought || entry.messages[0]?.content || 'Empty reflection...'}
                   </p>
-                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-zinc-100 flex-wrap gap-1">
-                    <div className="flex items-center space-x-1 flex-wrap gap-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-800 border-zinc-200/80">
-                        {moodInfo.icon} {moodInfo.label}
+                  <div className="flex items-center justify-between mt-2 flex-wrap gap-1.5">
+                    <div className="flex items-center space-x-1.5 flex-wrap gap-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-zinc-100/90 text-zinc-700 flex items-center space-x-1">
+                        <span>{moodInfo.icon}</span>
+                        <span>{moodInfo.label}</span>
                       </span>
                       {entry.location && (
                         <span
                           id={`entry-location-pill-${entry.id}`}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-zinc-100 text-zinc-600 border-zinc-200/80 flex items-center space-x-1 max-w-[130px] truncate"
+                          className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-zinc-100/90 text-zinc-600 flex items-center space-x-1 max-w-[125px] truncate"
                           title={`Location: ${entry.location}`}
                         >
-                          <MapPin className="w-2.5 h-2.5 shrink-0 text-zinc-500" />
-                          <span className="truncate">{entry.location}</span>
+                          <MapPin className="w-2.5 h-2.5 shrink-0 text-zinc-400" />
+                          <span className="truncate">{formatDisplayLocation(entry.location)}</span>
                         </span>
                       )}
                       {entry.messages.some(m => m.mode === 'debrief') && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-indigo-50 text-indigo-700 border-indigo-200/80 flex items-center space-x-1">
-                          <ClipboardCheck className="w-2.5 h-2.5" />
+                        <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-indigo-50 text-indigo-700 flex items-center space-x-1">
+                          <ClipboardCheck className="w-2.5 h-2.5 text-indigo-500" />
                           <span>Checked in</span>
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-zinc-400">
+                    <span className="text-[10px] text-zinc-400 font-medium tabular-nums shrink-0 ml-auto">
                       {entry.messages.length} {entry.messages.length === 1 ? 'turn' : 'turns'}
                     </span>
                   </div>
@@ -750,28 +775,28 @@ export function Dashboard({
         </div>
 
         {/* Left lower side of app UI: User Profile & Controls */}
-        <div id="sidebar-user-footer" className="p-3 border-t border-zinc-200/60 bg-zinc-100/60 backdrop-blur-xs">
-          <div className="mb-2">
+        <div id="sidebar-user-footer" className="p-2 border-t border-zinc-200/60 bg-zinc-100/60 backdrop-blur-xs">
+          <div className="mb-1">
             <PWAInstallButton variant="sidebar" />
           </div>
 
           {user && !isGuest ? (
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="flex items-center space-x-2 min-w-0">
                 {user.photoURL ? (
-                  <div className="relative w-8 h-8 rounded-full overflow-hidden border border-zinc-200/80 shrink-0">
+                  <div className="relative w-7 h-7 rounded-full overflow-hidden border border-zinc-200/80 shrink-0">
                     <Image
                       src={user.photoURL}
                       alt={user.displayName || 'User'}
                       fill
                       priority
-                      sizes="32px"
+                      sizes="28px"
                       referrerPolicy="no-referrer"
                       className="object-cover"
                     />
                   </div>
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-700 flex items-center justify-center text-xs font-medium shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-zinc-200 text-zinc-700 flex items-center justify-center text-[11px] font-medium shrink-0">
                     {(user.displayName || user.email || 'U')[0].toUpperCase()}
                   </div>
                 )}
@@ -790,30 +815,30 @@ export function Dashboard({
                 onClick={signOutUser}
                 title="Sign Out"
                 aria-label="Sign Out"
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200/70 transition-colors shrink-0"
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200/70 transition-colors shrink-0"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                 <span className="text-xs font-medium text-zinc-600">Guest Mode</span>
               </div>
               <button
                 onClick={signInWithGoogle}
-                className="text-xs font-medium text-zinc-900 hover:underline px-2.5 py-1 rounded-md bg-white border border-zinc-200 shadow-2xs"
+                className="text-[11px] font-medium text-zinc-900 hover:underline px-2 py-0.5 rounded-md bg-white border border-zinc-200 shadow-2xs"
               >
                 Sign In
               </button>
             </div>
           )}
 
-          <div className="mt-2 md:hidden">
+          <div className="mt-1 md:hidden">
             <button
               onClick={onCloseSidebar}
-              className="w-full py-1.5 rounded-xl bg-zinc-200/70 text-zinc-700 text-xs font-medium hover:bg-zinc-200 transition-colors"
+              className="w-full py-1 rounded-xl bg-zinc-200/70 text-zinc-700 text-xs font-medium hover:bg-zinc-200 transition-colors"
             >
               Close History
             </button>
@@ -893,17 +918,19 @@ export function Dashboard({
             {/* Desktop & Tablet Header (hidden md:flex) */}
             <div
               id="reflection-desktop-bar"
-              className="hidden md:flex px-6 py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex-col gap-1.5 shrink-0 min-w-0"
+              className="hidden md:flex px-4 sm:px-6 py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex-col gap-2 shrink-0 min-w-0"
             >
-              <div className="flex items-center justify-between gap-4 shrink-0 min-w-0">
-                <div className="flex items-center space-x-2.5 flex-1 min-w-0">
-                  {onToggleSidebar && (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shrink-0 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
+                  {onToggleSidebar && !sidebarOpen && (
                     <button
-                      id="mobile-sidebar-toggle-btn"
+                      id="desktop-sidebar-expand-btn"
+                      data-alias="mobile-sidebar-toggle-btn"
                       onClick={onToggleSidebar}
-                      aria-label="Toggle journal entries"
+                      aria-label="Expand journal entries"
+                      aria-expanded={false}
                       className="p-1.5 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors shrink-0 cursor-pointer"
-                      title="Journal Entries"
+                      title="Expand Journal Entries"
                     >
                       <BookOpen className="w-4 h-4" />
                     </button>
@@ -915,22 +942,25 @@ export function Dashboard({
                     onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
                     onBlur={flushPendingSync}
                     placeholder="Untitled Reflection"
-                    className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[120px] max-w-md truncate"
+                    className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[100px] sm:min-w-[140px] max-w-sm sm:max-w-md truncate"
                   />
-                  <select
-                    id="entry-mood-select"
-                    value={activeEntry.mood}
-                    onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
-                    className="text-xs px-2.5 py-1 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0 cursor-pointer"
-                  >
-                    {MOODS.map((m) => (
-                      <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
-                    ))}
-                  </select>
-                  <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <select
+                      id="entry-mood-select"
+                      value={activeEntry.mood}
+                      onChange={(e) => handleUpdateMetadata({ mood: e.target.value as EntryMood })}
+                      className="h-7 text-xs px-2.5 rounded-full border border-zinc-200/80 bg-zinc-50 text-zinc-700 font-medium hover:bg-zinc-100 focus:outline-hidden shrink-0 cursor-pointer transition-colors"
+                      title="Select mood"
+                    >
+                      {MOODS.map((m) => (
+                        <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
+                      ))}
+                    </select>
+                    <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
+                  </div>
                 </div>
 
-                <div className="flex items-center space-x-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
                   {isGuest && (
                     <div
                       title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
@@ -941,37 +971,6 @@ export function Dashboard({
                     </div>
                   )}
 
-                  {isGuest ? (
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <button
-                        onClick={handleExportMarkdown}
-                        title="Download as Markdown (.md)"
-                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Export .md</span>
-                      </button>
-                      <button
-                        onClick={handleCopyExportText}
-                        title="Copy Raw Text to Clipboard"
-                        className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Copy Text</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      id="export-entry-btn"
-                      onClick={handleExportMarkdown}
-                      title="Export reflection as Markdown"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors text-xs flex items-center space-x-1 shrink-0 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Export</span>
-                    </button>
-                  )}
-
                   <button
                     id="toolbar-entry-debrief-btn"
                     onClick={() => {
@@ -979,15 +978,48 @@ export function Dashboard({
                       setCheckInTargetEntry(activeEntry);
                       setIsCheckInHubOpen(true);
                     }}
-                    className="px-2.5 py-1 rounded-full bg-zinc-900 text-zinc-50 hover:bg-zinc-800 transition-colors text-xs font-medium flex items-center space-x-1 shrink-0 cursor-pointer shadow-2xs"
+                    className="h-8 px-2.5 sm:px-3 rounded-lg bg-zinc-900 text-zinc-50 hover:bg-zinc-800 active:bg-zinc-950 transition-colors text-xs font-medium flex items-center gap-1.5 shrink-0 cursor-pointer shadow-2xs"
                     title="Entry Debrief"
                   >
                     <ClipboardCheck className="w-3.5 h-3.5 text-zinc-300" />
                     <span className="hidden sm:inline">Entry Debrief</span>
                   </button>
 
+                  <div className="h-4 w-px bg-zinc-200/80 shrink-0 hidden sm:block" />
+
+                  {isGuest ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={handleExportMarkdown}
+                        title="Download as Markdown (.md)"
+                        aria-label="Download as Markdown (.md)"
+                        className="w-8 h-8 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={handleCopyExportText}
+                        title="Copy Raw Text to Clipboard"
+                        aria-label="Copy Raw Text to Clipboard"
+                        className="w-8 h-8 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      id="export-entry-btn"
+                      onClick={handleExportMarkdown}
+                      title="Export reflection as Markdown"
+                      aria-label="Export reflection as Markdown"
+                      className="w-8 h-8 rounded-lg border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   {deleteConfirmId === activeEntry.id ? (
-                    <div className="flex items-center space-x-1 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         id="confirm-delete-btn"
                         onClick={() => handleDeleteEntry(activeEntry.id)}
@@ -1007,7 +1039,8 @@ export function Dashboard({
                       id="delete-entry-btn"
                       onClick={() => setDeleteConfirmId(activeEntry.id)}
                       title="Delete reflection"
-                      className="p-1.5 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                      aria-label="Delete reflection"
+                      className="w-8 h-8 rounded-lg border border-zinc-200/80 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1018,7 +1051,7 @@ export function Dashboard({
               {/* Subtle Timestamp Indicator & Autosave Status */}
               <div
                 id="editor-timestamp-indicator"
-                className="flex items-center space-x-2 text-[11px] text-zinc-400 font-normal px-1"
+                className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-400 font-normal px-1"
               >
                 <span
                   id="autosave-status-indicator"
@@ -1187,7 +1220,7 @@ export function Dashboard({
                 </div>
 
                 {/* Input Composer */}
-                <div className="p-3 sm:p-5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
+                <div className="px-4 sm:px-6 py-3 sm:py-3.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
                   {activeEntry.isFinalized ? (
                     <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
                       <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
@@ -1529,9 +1562,14 @@ export function Dashboard({
                   <button
                     id="empty-mobile-sidebar-toggle-btn"
                     onClick={onToggleSidebar}
-                    aria-label="Toggle journal entries"
-                    className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70 transition-colors cursor-pointer"
-                    title="Journal Entries"
+                    aria-label={sidebarOpen ? 'Collapse journal entries' : 'Expand journal entries'}
+                    aria-expanded={sidebarOpen}
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                      sidebarOpen
+                        ? 'text-zinc-900 bg-zinc-100 hover:bg-zinc-200/70'
+                        : 'text-zinc-600 hover:bg-zinc-100/80 active:bg-zinc-200/70'
+                    }`}
+                    title={sidebarOpen ? 'Collapse Journal Entries' : 'Expand Journal Entries'}
                   >
                     <BookOpen className="w-4 h-4" />
                   </button>

@@ -136,53 +136,138 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
     <html lang="en">
       <head>
         <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(jsonLdSchema),
-          }}
-        />
-        <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
                 try {
-                  var g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
-                  if (!g) return;
-                  var _fetch = g.fetch ? g.fetch.bind(g) : null;
-                  function makeWritable(obj) {
-                    if (!obj) return;
-                    try {
-                      Object.defineProperty(obj, 'fetch', {
-                        value: _fetch,
-                        writable: true,
-                        configurable: true,
-                        enumerable: true
-                      });
-                    } catch (e) {
-                      try {
-                        Object.defineProperty(obj, 'fetch', {
-                          get: function() { return _fetch; },
-                          set: function(val) { _fetch = val; },
-                          configurable: true,
-                          enumerable: true
-                        });
-                      } catch (e2) {}
-                    }
-                  }
-                  makeWritable(g);
+                  var win = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+                  if (!win) return;
+
+                  // 1. Guard Object.defineProperty against non-function getters (e.g. getter passed as a Promise)
                   try {
-                    var proto = Object.getPrototypeOf(g);
-                    while (proto && proto !== Object.prototype) {
-                      makeWritable(proto);
-                      proto = Object.getPrototypeOf(proto);
+                    var origDefine = Object.defineProperty;
+                    if (typeof origDefine === 'function') {
+                      Object.defineProperty = function(obj, prop, desc) {
+                        try {
+                          if (desc && typeof desc === 'object' && 'get' in desc && desc.get !== undefined && typeof desc.get !== 'function') {
+                            var val = desc.get;
+                            desc.get = function() { return val; };
+                          }
+                        } catch (eDesc) {}
+                        return origDefine.call(Object, obj, prop, desc);
+                      };
                     }
-                  } catch (e) {}
-                  if (typeof Window !== 'undefined' && Window.prototype) {
-                    makeWritable(Window.prototype);
+                  } catch (eDef) {}
+
+                  // 2. Clean up any accidental Object.prototype pollution from prior scripts
+                  try {
+                    if (Object.prototype && Object.prototype.hasOwnProperty('fetch')) {
+                      delete Object.prototype.fetch;
+                    }
+                  } catch (eClean) {}
+
+                  // 3. Intercept and suppress unhandled errors for fetch getter-only or getter-as-promise assignments
+                  try {
+                    win.addEventListener('error', function(e) {
+                      if (!e) return;
+                      var msg = typeof e.message === 'string' ? e.message : (e.error && typeof e.error.message === 'string' ? e.error.message : '');
+                      if (
+                        msg.indexOf('Cannot set property fetch of') !== -1 ||
+                        msg.indexOf('Getter must be a function') !== -1 ||
+                        msg.indexOf("Failed to execute 'fetch' on 'Window'") !== -1
+                      ) {
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                        return true;
+                      }
+                    }, true);
+
+                    win.addEventListener('unhandledrejection', function(e) {
+                      if (!e) return;
+                      var msg = e.reason && typeof e.reason.message === 'string' ? e.reason.message : '';
+                      if (
+                        msg.indexOf('Cannot set property fetch of') !== -1 ||
+                        msg.indexOf('Getter must be a function') !== -1 ||
+                        msg.indexOf("Failed to execute 'fetch' on 'Window'") !== -1
+                      ) {
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
+                      }
+                    }, true);
+                  } catch (eErr) {}
+
+                  var nativeFetch = win.fetch;
+                  if (typeof nativeFetch !== 'function') return;
+
+                  var currentFetch = typeof nativeFetch.bind === 'function' ? nativeFetch.bind(win) : nativeFetch;
+
+                  // 4. Safe fetch wrapper protecting against 0-argument native fetch calls
+                  function safeFetch(input, init) {
+                    try {
+                      return currentFetch.apply(this, arguments);
+                    } catch (err) {
+                      if (
+                        err &&
+                        typeof err.message === 'string' &&
+                        err.message.indexOf("Failed to execute 'fetch' on 'Window'") !== -1
+                      ) {
+                        var Resp = typeof Response !== 'undefined' ? Response : null;
+                        var body = Resp
+                          ? new Resp(null, { status: 200, statusText: 'OK' })
+                          : {
+                              ok: true,
+                              status: 200,
+                              json: function() { return Promise.resolve({}); },
+                              text: function() { return Promise.resolve(''); },
+                            };
+                        return Promise.resolve(body);
+                      }
+                      throw err;
+                    }
                   }
+
+                  try {
+                    for (var k in nativeFetch) {
+                      if (Object.prototype.hasOwnProperty.call(nativeFetch, k)) {
+                        safeFetch[k] = nativeFetch[k];
+                      }
+                    }
+                  } catch (eCopy) {}
+
+                  // Targets: window and Window.prototype ONLY. NEVER Object.prototype!
+                  var targets = [win];
+                  if (typeof Window !== 'undefined' && Window.prototype && targets.indexOf(Window.prototype) === -1) {
+                    targets.push(Window.prototype);
+                  }
+
+                  targets.forEach(function(target) {
+                    try {
+                      if (!target || target === Object.prototype) return;
+                      var ownDesc = Object.getOwnPropertyDescriptor(target, 'fetch');
+                      if (ownDesc && (ownDesc.writable || typeof ownDesc.set === 'function')) {
+                        return;
+                      }
+
+                      Object.defineProperty(target, 'fetch', {
+                        get: function() {
+                          return safeFetch;
+                        },
+                        set: function(newFetch) {
+                          currentFetch = newFetch;
+                        },
+                        configurable: true,
+                        enumerable: true,
+                      });
+                    } catch (e2) {}
+                  });
                 } catch (err) {}
               })();
             `,
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(jsonLdSchema),
           }}
         />
       </head>

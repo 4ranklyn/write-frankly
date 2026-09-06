@@ -35,3 +35,14 @@ export function formatTimeOnly(timestamp: number | string | Date): string {
     minute: '2-digit',
   });
 }
+
+/**
+ * Extracts only the first iteration of the area from a full location string
+ * (e.g. "Tangerang, Banten, Indonesia" -> "Tangerang", "San Francisco, CA" -> "San Francisco")
+ */
+export function formatDisplayLocation(location?: string | null): string {
+  if (!location) return '';
+  const trimmed = location.trim();
+  const firstPart = trimmed.split(',')[0]?.trim();
+  return firstPart || trimmed;
+}

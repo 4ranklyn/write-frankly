@@ -3,6 +3,7 @@
 import React from "react";
 import { MapPin, Loader2, X } from "lucide-react";
 import { useLocation } from "@/hooks/useLocation";
+import { formatDisplayLocation } from "@/lib/utils";
 
 interface LocationTagProps {
   value?: string | null;
@@ -34,7 +35,7 @@ export function LocationTag({ value, onChange, disabled }: LocationTagProps) {
         title={`Attached location: ${value}`}
       >
         <MapPin className="w-3 h-3 text-zinc-600 shrink-0" />
-        <span className="truncate text-[11px] leading-tight select-none">{value}</span>
+        <span className="truncate text-[11px] leading-tight select-none">{formatDisplayLocation(value)}</span>
         <button
           id="editor-remove-location-btn"
           type="button"
