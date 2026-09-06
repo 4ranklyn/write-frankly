@@ -387,10 +387,6 @@ export function CheckInHub({
     }
   };
 
-  const handleQuickReply = (text: string) => {
-    setInput(text);
-  };
-
   const handleFinishDebrief = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -409,68 +405,71 @@ export function CheckInHub({
   return (
     <div
       id="checkin-hub-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-5 overflow-hidden"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         id="checkin-hub-modal-card"
-        className="w-full max-w-2xl bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-2xl p-6 flex flex-col max-h-[88vh] text-neutral-100"
+        className="w-full max-w-xl sm:max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl p-4 sm:p-5 flex flex-col h-[85vh] max-h-[720px] min-h-[460px] text-neutral-100 overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-neutral-800 shrink-0">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-200 shrink-0">
+        <div className="flex items-start justify-between pb-3 border-b border-neutral-800 shrink-0">
+          <div className="flex items-start space-x-3 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700/80 flex items-center justify-center text-neutral-200 shrink-0 mt-0.5">
               <BookOpen className="w-4 h-4 text-neutral-300" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">My Reflections & Debrief</h2>
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
-                  {isGlobal ? 'Holistic Debrief & Reflection Archive' : 'Entry Debrief'}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex items-baseline justify-between gap-2 pr-2">
+                <h2 className="text-sm sm:text-base font-semibold text-neutral-100 tracking-tight truncate">
+                  {isGlobal ? 'Debrief & Synthesis' : 'Reflection Debrief'}
+                </h2>
+                <span className="text-[11px] text-neutral-400 truncate hidden sm:inline font-normal">
+                  {isGlobal
+                    ? recentEntriesToUse.length > 0
+                      ? `${recentEntriesToUse.length} reflection${recentEntriesToUse.length === 1 ? '' : 's'}`
+                      : 'Holistic confidant check-in'
+                    : `"${entry?.title || 'Reflection'}"`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800/90 text-neutral-300 border border-neutral-700/80 shrink-0">
+                  {isGlobal ? 'Archive' : 'Entry'}
                 </span>
                 {(entry?.location || (isGlobal && recentEntriesToUse[0]?.location)) && (
                   <span
                     id="checkin-hub-location-badge"
-                    className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800/80 text-neutral-300 border border-neutral-700"
+                    className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800/80 text-neutral-300 border border-neutral-700/80 shrink-0"
                     title={`Setting: ${entry?.location || recentEntriesToUse[0]?.location}`}
                   >
                     <MapPin className="w-2.5 h-2.5 text-neutral-400" />
-                    <span className="truncate max-w-[140px]">{entry?.location || recentEntriesToUse[0]?.location}</span>
+                    <span className="truncate max-w-[110px]">{entry?.location || recentEntriesToUse[0]?.location}</span>
                   </span>
                 )}
                 <button
                   id="checkin-hub-persona-indicator-btn"
                   type="button"
                   onClick={() => setIsPersonalityModalOpen(true)}
-                  className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-amber-300 hover:text-amber-200 border border-neutral-700 hover:border-neutral-600 text-[10px] font-medium transition-colors cursor-pointer"
-                  title="Click to customize Frankly's tone, warmth, and debriefing style"
+                  className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700/80 text-[10px] font-medium transition-colors cursor-pointer shrink-0"
+                  title="Click to customize Frankly's tone and style"
                 >
                   <Sliders className="w-2.5 h-2.5 text-amber-400" />
-                  <span>Speaking with Frankly ({getPersonaLabel(userPreferences.personality)})</span>
-                  <Sliders className="w-2.5 h-2.5 ml-0.5 text-neutral-400" />
+                  <span>{getPersonaLabel(userPreferences.personality)}</span>
                 </button>
               </div>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                {isGlobal
-                  ? recentEntriesToUse.length > 0
-                    ? `Synthesizing themes from your last ${recentEntriesToUse.length} reflection${recentEntriesToUse.length === 1 ? '' : 's'}`
-                    : 'Holistic confidant check-in & reflection archive'
-                  : `Conversing with Frankly about "${entry?.title || 'Reflection'}"`}
-              </p>
             </div>
           </div>
-          <div className="flex items-center space-x-2 shrink-0">
+          <div className="flex items-center space-x-1.5 shrink-0 ml-3 pt-0.5">
             <button
               type="button"
               id="finish-debrief-btn"
               onClick={handleFinishDebrief}
-              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-medium transition-colors cursor-pointer shadow-xs"
               title="Save debrief and finish"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>Done Debriefing</span>
+              <span>Done</span>
             </button>
             <button
               id="close-checkin-hub-btn"
@@ -479,13 +478,13 @@ export function CheckInHub({
               aria-label="Close My Reflections & Debrief"
               title="Close (Esc)"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         {/* Scrollable Conversation */}
-        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto py-3 space-y-3 pr-1">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -501,7 +500,7 @@ export function CheckInHub({
               </div>
 
               <div
-                className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-4 text-sm transition-all duration-150 ${
+                className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-3.5 text-xs sm:text-sm transition-all duration-150 ${
                   msg.role === 'user'
                     ? 'bg-white text-neutral-900 rounded-tr-xs shadow-xs font-normal'
                     : 'bg-neutral-800/90 border border-neutral-700/70 text-neutral-100 rounded-tl-xs shadow-xs'
@@ -539,37 +538,8 @@ export function CheckInHub({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick Suggestion Pills */}
-        <div className="pt-2 pb-2 border-t border-neutral-800 shrink-0">
-          <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-            {(isGlobal
-              ? [
-                  'How does my trajectory look?',
-                  'What pattern do you notice?',
-                  'I feel a bit overwhelmed today',
-                  'I feel centered right now',
-                ]
-              : [
-                  'What felt hardest to write?',
-                  'I feel lighter now',
-                  'Help me unpack this feeling',
-                  'What should I focus on next?',
-                ]
-            ).map((reply) => (
-              <button
-                key={reply}
-                id={`quick-reply-${reply.slice(0, 10).toLowerCase().replace(/\s+/g, '-')}`}
-                onClick={() => handleQuickReply(reply)}
-                className="whitespace-nowrap px-3 py-1 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 text-xs rounded-full transition-colors border border-neutral-700/80 shrink-0 cursor-pointer"
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Input Composer */}
-        <div className="pt-2 shrink-0">
+        <div className="pt-2 shrink-0 border-t border-neutral-800/80">
           <div className="relative flex items-end">
             <textarea
               id="checkin-hub-input-textarea"
@@ -600,8 +570,8 @@ export function CheckInHub({
             </button>
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-neutral-500 px-1">
-            <span>Press Esc to dismiss modal without losing editor work</span>
-            <span>Multi-turn confidant debrief</span>
+            <span>Esc to close · Enter to send</span>
+            <span>Frankly Debrief</span>
           </div>
         </div>
       </div>
