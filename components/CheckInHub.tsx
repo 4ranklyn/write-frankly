@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { JournalEntry, ChatMessage, UserPreferences, AIPersonality, getPersonaLabel } from '@/types/journal';
-import { Send, X, RefreshCw, Sparkles, Sliders, MapPin, ClipboardCheck, Check } from 'lucide-react';
+import { Send, X, RefreshCw, Sparkles, Sliders, MapPin, BookOpen, Check } from 'lucide-react';
 import { generateUniqueId, getCurrentTimestamp, formatDateTime } from '@/lib/utils';
 import { sanitizePayload } from '@/lib/sanitizer';
 import ReactMarkdown from 'react-markdown';
@@ -227,7 +227,7 @@ export function CheckInHub({
           const updatedMessages = [finalAiMessage];
           setMessages(updatedMessages);
           if (onSaveMessages) {
-            const sanitized = sanitizePayload(updatedMessages) as ChatMessage[];
+            const sanitized = JSON.parse(JSON.stringify(sanitizePayload(updatedMessages))) as ChatMessage[];
             await onSaveMessages(sanitized);
           }
         }
@@ -279,7 +279,7 @@ export function CheckInHub({
 
     // Optimistic background persistence of user input
     if (onSaveMessages) {
-      const sanitized = sanitizePayload(newMessages) as ChatMessage[];
+      const sanitized = JSON.parse(JSON.stringify(sanitizePayload(newMessages))) as ChatMessage[];
       onSaveMessages(sanitized).catch((e) => console.warn('Optimistic save notice:', e));
     }
 
@@ -369,7 +369,7 @@ export function CheckInHub({
         const finalMessages = [...newMessages, aiMsg];
         setMessages(finalMessages);
         if (onSaveMessages) {
-          const sanitized = sanitizePayload(finalMessages) as ChatMessage[];
+          const sanitized = JSON.parse(JSON.stringify(sanitizePayload(finalMessages))) as ChatMessage[];
           await onSaveMessages(sanitized);
         }
       }
@@ -397,7 +397,7 @@ export function CheckInHub({
       abortControllerRef.current = null;
     }
     if (onSaveMessages && messages.length > 0) {
-      const sanitized = sanitizePayload(messages) as ChatMessage[];
+      const sanitized = JSON.parse(JSON.stringify(sanitizePayload(messages))) as ChatMessage[];
       await onSaveMessages(sanitized);
     }
     if (onSaveSuccess) {
@@ -422,11 +422,11 @@ export function CheckInHub({
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-200 shrink-0">
-              <ClipboardCheck className="w-4 h-4 text-neutral-300" />
+              <BookOpen className="w-4 h-4 text-neutral-300" />
             </div>
             <div>
               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">History & Debrief</h2>
+                <h2 className="text-base font-semibold text-neutral-100 tracking-tight">My Reflections & Debrief</h2>
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
                   {isGlobal ? 'Holistic Debrief & Reflection Archive' : 'Entry Debrief'}
                 </span>
@@ -447,7 +447,7 @@ export function CheckInHub({
                   className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-amber-300 hover:text-amber-200 border border-neutral-700 hover:border-neutral-600 text-[10px] font-medium transition-colors cursor-pointer"
                   title="Click to customize Frankly's tone, warmth, and debriefing style"
                 >
-                  <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                  <Sliders className="w-2.5 h-2.5 text-amber-400" />
                   <span>Speaking with Frankly ({getPersonaLabel(userPreferences.personality)})</span>
                   <Sliders className="w-2.5 h-2.5 ml-0.5 text-neutral-400" />
                 </button>
@@ -476,7 +476,7 @@ export function CheckInHub({
               id="close-checkin-hub-btn"
               onClick={onClose}
               className="p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
-              aria-label="Close History & Debrief"
+              aria-label="Close My Reflections & Debrief"
               title="Close (Esc)"
             >
               <X className="w-5 h-5" />

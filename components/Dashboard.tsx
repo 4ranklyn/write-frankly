@@ -248,7 +248,7 @@ export function Dashboard({
     const timestamp = getCurrentTimestamp();
     const newId = generateUniqueId('entry');
     const formattedDate = new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const newEntry: JournalEntry = {
+    const newEntry: JournalEntry = JSON.parse(JSON.stringify(sanitizePayload({
       id: newId,
       userId: user.uid,
       title: '',
@@ -258,7 +258,7 @@ export function Dashboard({
       messages: [],
       createdAt: timestamp,
       updatedAt: timestamp,
-    };
+    })));
 
     setSaveStatus('saving');
     try {
@@ -275,7 +275,7 @@ export function Dashboard({
 
   const handleUpdateMetadata = (updates: Partial<JournalEntry>) => {
     if (!user || !activeEntry) return;
-    const updated: JournalEntry = { ...activeEntry, ...updates, updatedAt: getCurrentTimestamp() };
+    const updated: JournalEntry = JSON.parse(JSON.stringify({ ...activeEntry, ...updates, updatedAt: getCurrentTimestamp() }));
     
     setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     
@@ -289,7 +289,7 @@ export function Dashboard({
     if (updates.isFinalized) {
       flushPendingSync();
       setSaveStatus('saved');
-      setSaveToastMessage('Reflection saved successfully');
+      setSaveToastMessage('✓ Reflection saved securely');
     }
   };
 
@@ -298,31 +298,34 @@ export function Dashboard({
     flushPendingSync();
 
     const finalizedTimestamp = getCurrentTimestamp();
-    const finalizedEntry: JournalEntry = sanitizePayload({
+    const finalizedEntry: JournalEntry = JSON.parse(JSON.stringify(sanitizePayload({
       ...activeEntry,
       location: effectiveLocation,
       isFinalized: true,
       updatedAt: finalizedTimestamp,
-    });
+    })));
+
+    // Optimistically commit reflection data locally prepended at index 0
+    setEntries((prev) => [finalizedEntry, ...prev.filter((e) => e.id !== finalizedEntry.id)]);
+    if (isGuest) {
+      setGuestEntry(finalizedEntry);
+    }
+
+    // High-contrast floating toast confirmation
+    setSaveToastMessage('✓ Reflection saved securely');
+
+    // Deterministically navigate to "My Reflections" list
+    setSelectedEntryId(null);
 
     setSaveStatus('saving');
     try {
-      if (isGuest) {
-        setGuestEntry(finalizedEntry);
-        setEntries((prev) => [finalizedEntry, ...prev.filter((e) => e.id !== finalizedEntry.id)]);
-      } else if (user) {
+      if (!isGuest && user) {
         await saveJournalEntry(user.uid, finalizedEntry);
-        setEntries((prev) => [finalizedEntry, ...prev.filter((e) => e.id !== finalizedEntry.id)]);
       }
       pendingSyncEntryRef.current = null;
       setSaveStatus('saved');
       setErrorMessage(null);
-      setSaveToastMessage('✓ Reflection saved securely');
 
-      // On mobile viewports, unselect active entry to return to "My Reflections" feed
-      if (typeof window !== 'undefined' && window.innerWidth < 768) {
-        setSelectedEntryId(null);
-      }
       if (isGuest) {
         setShowGuestAccountPrompt(true);
       }
@@ -387,12 +390,13 @@ export function Dashboard({
     if (isRetryingSave || !activeEntry) return;
     setIsRetryingSave(true);
     setSaveStatus('saving');
+    const cleanEntry: JournalEntry = JSON.parse(JSON.stringify(sanitizePayload(activeEntry)));
     try {
       if (isGuest) {
-        setGuestEntry(activeEntry);
-        setEntries((prev) => prev.map((e) => (e.id === activeEntry.id ? activeEntry : e)));
+        setGuestEntry(cleanEntry);
+        setEntries((prev) => prev.map((e) => (e.id === cleanEntry.id ? cleanEntry : e)));
       } else if (user) {
-        await saveJournalEntry(user.uid, activeEntry);
+        await saveJournalEntry(user.uid, cleanEntry);
         pendingSyncEntryRef.current = null;
       }
       setSaveStatus('saved');
@@ -424,13 +428,13 @@ export function Dashboard({
     };
 
     const updatedMessages = [...(activeEntry.messages || []), userMessage];
-    const updatedEntry: JournalEntry = {
+    const updatedEntry: JournalEntry = JSON.parse(JSON.stringify(sanitizePayload({
       ...activeEntry,
       location: effectiveLocation,
       initialThought: activeEntry.initialThought || textToSend,
       messages: updatedMessages,
       updatedAt: userTimestamp,
-    };
+    })));
 
     setPromptInput('');
     setIsGenerating(true);
@@ -620,10 +624,10 @@ export function Dashboard({
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[#fafafa] relative h-[100dvh] overscroll-y-contain">
-      {/* Sidebar (Left Rail: spacious 320px, with compact streamlined div heights) */}
+      {/* Sidebar (Left Rail: 280px on desktop, with compact streamlined div heights) */}
       <aside
         id="history-sidebar"
-        className={`fixed md:static inset-y-0 left-0 z-20 w-80 lg:w-[320px] shrink-0 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-all duration-200 ease-out ${
+        className={`fixed md:static inset-y-0 left-0 z-20 w-80 lg:w-[280px] shrink-0 bg-zinc-50/90 backdrop-blur-xl border-r border-zinc-200/70 flex flex-col transition-all duration-200 ease-out ${
           sidebarOpen ? 'translate-x-0 md:translate-x-0' : '-translate-x-full md:hidden'
         }`}
       >
@@ -657,7 +661,7 @@ export function Dashboard({
               title="Create New Reflection"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Entry</span>
+              <span>+ New Reflection</span>
             </button>
           </div>
         </div>
@@ -855,7 +859,7 @@ export function Dashboard({
             {/* Mobile Viewport Header (48px / h-12, md:hidden) */}
             <div
               id="reflection-mobile-bar"
-              className="h-12 px-3 border-b border-zinc-200/60 bg-white/95 backdrop-blur-xl flex md:hidden items-center justify-between shrink-0 min-w-0"
+              className="h-12 px-3 pt-[env(safe-area-inset-top)] border-b border-zinc-200/60 bg-white/95 backdrop-blur-xl flex md:hidden items-center justify-between shrink-0 min-w-0"
             >
               <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                 <button
@@ -869,7 +873,7 @@ export function Dashboard({
                     }
                   }}
                   aria-label="Back to reflections feed"
-                  className="w-11 h-11 -ml-2 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                  className="w-11 h-11 -ml-1.5 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
                   title="Back to Reflections"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -901,13 +905,22 @@ export function Dashboard({
                 </div>
               </div>
 
-              <div className="flex items-center space-x-1 shrink-0">
+              <div className="flex items-center space-x-1.5 shrink-0">
+                <button
+                  type="button"
+                  id="mobile-header-tone-badge"
+                  onClick={() => setIsPersonalitySettingsOpen(true)}
+                  className="px-2 py-0.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium border border-zinc-200/80 truncate max-w-[110px] cursor-pointer transition-colors"
+                  title={`Tone: ${getPersonaLabel(preferences.personality)}`}
+                >
+                  {getPersonaLabel(preferences.personality)}
+                </button>
                 <button
                   id="mobile-overflow-menu-btn"
                   type="button"
                   onClick={() => setMobileMenuOpen(true)}
                   aria-label="Open reflection options"
-                  className="w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                  className="w-11 h-11 -mr-1.5 rounded-xl flex items-center justify-center text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
                   title="Options"
                 >
                   <MoreVertical className="w-5 h-5" />
@@ -1111,18 +1124,18 @@ export function Dashboard({
             <div className="flex-1 flex overflow-hidden min-h-0">
               {/* Center Canvas */}
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
-                <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-6 space-y-6 bg-[#fafafa]">
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 pb-6 space-y-6 bg-[#fafafa]">
                   {activeEntry.messages.length === 0 ? (
-                    <div className="max-w-xl mx-auto text-center py-4 sm:py-8">
-                      <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-3.5">
-                        <Sparkles className="w-5 h-5" />
+                    <div className="max-w-3xl mx-auto text-center py-2 sm:py-4">
+                      <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-2.5">
+                        <BookOpen className="w-5 h-5 text-zinc-700" />
                       </div>
                       <h3 className="text-base font-semibold text-zinc-900">Say what you actually think</h3>
                       <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto leading-relaxed">
                         No performance, no filtering, no fear of consequence. Write what is real.
                       </p>
 
-                      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                         {getStartersForPersonality(preferences.personality).map((starter, idx) => (
                           <button
                             key={idx}
@@ -1142,7 +1155,7 @@ export function Dashboard({
                       </div>
                     </div>
                   ) : (
-                    <div className="max-w-2xl mx-auto space-y-5">
+                    <div className="max-w-3xl mx-auto space-y-5">
                       {activeEntry.messages.map((msg) => (
                         <div key={msg.id} id={`chat-message-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                           <div className="flex items-center space-x-2 mb-1 px-1">
@@ -1199,7 +1212,7 @@ export function Dashboard({
 
                 {/* Actions Bar */}
                 <div className="px-4 sm:px-6 pt-2 pb-1.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/50 shrink-0">
-                  <div className="max-w-2xl mx-auto flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
+                  <div className="max-w-3xl mx-auto flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
                     <span className="text-[10px] font-medium text-zinc-400 shrink-0 mr-1">Actions:</span>
                     {QUICK_ACTIONS.map((action) => {
                       const Icon = action.icon;
@@ -1222,7 +1235,7 @@ export function Dashboard({
                 {/* Input Composer */}
                 <div className="px-4 sm:px-6 py-3 sm:py-3.5 bg-white/90 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
                   {activeEntry.isFinalized ? (
-                    <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
+                    <div className="max-w-3xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
                       <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>Reflection saved and finished</span>
@@ -1268,13 +1281,13 @@ export function Dashboard({
                           className="px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-medium transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
                           title="Start an AI debrief about this reflection"
                         >
-                          <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600" />
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
                           <span>Debrief with Frankly →</span>
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="max-w-2xl mx-auto flex flex-col space-y-2">
+                    <div className="max-w-3xl mx-auto flex flex-col space-y-2">
                       {/* Tone Pop-Up Button hovering just above the chat box */}
                       <div className="flex items-center justify-between px-0.5">
                         <div className="relative">
@@ -1419,9 +1432,9 @@ export function Dashboard({
                               setIsCheckInHubOpen(true);
                             }}
                             className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition-colors border border-zinc-200/80 inline-flex items-center space-x-1.5 cursor-pointer"
-                            title="Explore an AI debrief for this reflection"
+                            title="Debrief with Frankly"
                           >
-                            <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
+                            <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
                             <span className="hidden xs:inline">Debrief with Frankly →</span>
                             <span className="xs:hidden">Debrief →</span>
                           </button>
@@ -1453,7 +1466,7 @@ export function Dashboard({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <div className="w-6 h-6 rounded-lg bg-zinc-100 border border-zinc-200 flex items-center justify-center text-zinc-700">
-                        <Sparkles className="w-3.5 h-3.5" />
+                        <Sliders className="w-3.5 h-3.5" />
                       </div>
                       <span className="text-xs font-semibold text-zinc-900">AI Tone Posture</span>
                     </div>
@@ -1529,7 +1542,7 @@ export function Dashboard({
                 <div className="bg-gradient-to-br from-indigo-50/80 to-purple-50/50 rounded-2xl p-3.5 border border-indigo-100/90 shadow-2xs space-y-2.5">
                   <div className="flex items-center space-x-2">
                     <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                      <ClipboardCheck className="w-3.5 h-3.5" />
+                      <Sparkles className="w-3.5 h-3.5" />
                     </div>
                     <span className="text-xs font-semibold text-zinc-900">Holistic Debrief</span>
                   </div>
@@ -1556,7 +1569,7 @@ export function Dashboard({
         ) : (
           <div className="flex-1 flex flex-col bg-[#fafafa]">
             {/* Top Toolbar in Empty State */}
-            <div className="h-14 px-4 sm:px-6 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex items-center justify-between shrink-0">
+            <div className="h-12 md:h-14 pt-[env(safe-area-inset-top)] px-4 sm:px-6 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 {onToggleSidebar && (
                   <button
@@ -1584,10 +1597,10 @@ export function Dashboard({
                   setIsCheckInHubOpen(true);
                 }}
                 className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-medium transition-all duration-200 border border-zinc-200/80 cursor-pointer shadow-2xs"
-                title="Open History & Debrief"
+                title="Open My Reflections & Debrief"
               >
-                <ClipboardCheck className="w-3.5 h-3.5 text-zinc-600" />
-                <span>History & Debrief</span>
+                <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
+                <span>My Reflections & Debrief</span>
               </button>
             </div>
 
@@ -1598,7 +1611,7 @@ export function Dashboard({
                 </div>
                 <h2 className="text-base font-semibold text-zinc-900">Welcome to WriteFrankly</h2>
                 <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
-                  Select an entry from your journal history, start a new reflection, or open History & Debrief for a holistic debrief.
+                  Select an entry from your journal history, start a new reflection, or open My Reflections & Debrief for a holistic debrief.
                 </p>
                 <div className="mt-5 flex items-center justify-center space-x-2.5">
                   <button
@@ -1621,7 +1634,7 @@ export function Dashboard({
                     title="View past debriefs and reflections"
                   >
                     <BookOpen className="w-3.5 h-3.5 text-zinc-600" />
-                    <span>Past Debriefs</span>
+                    <span>Past Reflections</span>
                   </button>
                 </div>
               </div>
@@ -1715,7 +1728,7 @@ export function Dashboard({
                   className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-medium transition-colors cursor-pointer"
                 >
                   <div className="flex items-center space-x-2">
-                    <Sparkles className="w-3.5 h-3.5 text-zinc-500" />
+                    <Sliders className="w-3.5 h-3.5 text-zinc-500" />
                     <span>{getPersonaLabel(preferences.personality)}</span>
                   </div>
                   <Sliders className="w-3.5 h-3.5 text-zinc-400" />
@@ -1734,7 +1747,7 @@ export function Dashboard({
                 }}
                 className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-zinc-900 text-white font-medium hover:bg-zinc-800 transition-colors shadow-2xs cursor-pointer"
               >
-                <ClipboardCheck className="w-4 h-4 text-zinc-300" />
+                <Sparkles className="w-4 h-4 text-zinc-300" />
                 <span>Debrief with Frankly</span>
               </button>
 

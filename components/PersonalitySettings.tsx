@@ -4,8 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { AIPersonality, UserPreferences, normalizePersonality } from '@/types/journal';
 import {
   X,
-  Check,
-  Sparkles,
+  CheckCircle2,
   HeartHandshake,
   Compass,
   HelpCircle,
@@ -20,7 +19,6 @@ export interface PersonalityMeta {
   tagline: string;
   description: string;
   badge: string;
-  previewQuote: string;
 }
 
 export const PERSONALITY_OPTIONS: PersonalityMeta[] = [
@@ -32,8 +30,6 @@ export const PERSONALITY_OPTIONS: PersonalityMeta[] = [
     description:
       'Offers supportive validation while gently helping you unpack heavy emotions.',
     badge: 'Default',
-    previewQuote:
-      '"I hear how much weight you carried today. Let\'s breathe and unpack this without rushing to fix anything."',
   },
   {
     id: 'pragmatic_coach',
@@ -43,8 +39,6 @@ export const PERSONALITY_OPTIONS: PersonalityMeta[] = [
     description:
       'Pokes at the edges of your assumptions and cuts through rationalizations.',
     badge: 'Direct',
-    previewQuote:
-      '"The core bottleneck here is hesitation. What is the single smallest move you can make in the next 15 minutes?"',
   },
   {
     id: 'socratic_inquirer',
@@ -54,8 +48,6 @@ export const PERSONALITY_OPTIONS: PersonalityMeta[] = [
     description:
       'Guides you through targeted questions to let you arrive at your own clarity.',
     badge: 'Probing',
-    previewQuote:
-      '"You say you wanted that outcome, yet your instinct was to withdraw. What assumption is driving that reaction?"',
   },
 ];
 
@@ -183,7 +175,7 @@ export function PersonalitySettings({
       case 'socratic_inquirer':
         return <HelpCircle className="w-4 h-4 text-violet-600 dark:text-violet-400" />;
       default:
-        return <Sparkles className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />;
+        return <Sliders className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />;
     }
   };
 
@@ -206,7 +198,7 @@ export function PersonalitySettings({
         <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/70">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-xl bg-zinc-900 text-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 flex items-center justify-center shadow-xs">
-              <Sparkles className="w-4 h-4" />
+              <Sliders className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
@@ -274,7 +266,7 @@ export function PersonalitySettings({
                     }}
                     className={`relative p-4 rounded-xl border transition-all duration-200 ease-out cursor-pointer text-left min-h-[44px] select-none ${
                       isSelected
-                        ? 'ring-2 ring-zinc-900 bg-zinc-50/80 border-zinc-900 dark:ring-white dark:bg-zinc-800/80 dark:border-white shadow-xs'
+                        ? 'ring-2 ring-primary bg-primary/5 dark:bg-primary/10 border-primary shadow-xs'
                         : 'bg-white hover:bg-zinc-50/60 border-zinc-200/80 dark:bg-zinc-900 dark:border-zinc-800 dark:hover:bg-zinc-850 hover:border-zinc-300'
                     }`}
                   >
@@ -310,25 +302,18 @@ export function PersonalitySettings({
                         </div>
                       </div>
 
-                      <div
-                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border transition-all duration-200 ${
-                          isSelected
-                            ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-zinc-900 dark:border-white scale-105'
-                            : 'border-zinc-300 dark:border-zinc-700 bg-transparent'
-                        }`}
-                      >
-                        {isSelected && <Check className="w-3 h-3 stroke-[2.5]" />}
+                      <div className="flex items-center justify-center shrink-0 mt-0.5">
+                        {isSelected ? (
+                          <CheckCircle2 className="w-5 h-5 text-zinc-900 dark:text-zinc-100" />
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-zinc-300 dark:border-zinc-700 bg-transparent" />
+                        )}
                       </div>
                     </div>
 
                     <p className="text-xs mt-2.5 leading-relaxed text-zinc-600 dark:text-zinc-300">
                       {option.description}
                     </p>
-
-                    {/* Preview quote snippet */}
-                    <div className="mt-2.5 px-3 py-2 rounded-lg text-[11px] italic font-serif leading-snug bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
-                      {option.previewQuote}
-                    </div>
                   </div>
                 );
               })}

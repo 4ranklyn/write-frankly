@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
+@theme {
+  --color-primary: #18181b;
+}
+
 @layer base {
   :root {
+    --primary: #18181b;
     --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
   }
 

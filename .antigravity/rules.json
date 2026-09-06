@@ -113,6 +113,22 @@
         "Support offline-first local persistence before triggering cloud network requests."
       ],
       "skillRef": "skills/adaptive-pwa/SKILL.md"
+    },
+    {
+      "id": "antislop-mobile-ergonomics",
+      "name": "Anti-Slop Mobile & UI Layout Standard",
+      "description": "Eliminates visual bloat, viewport crowding, fake preview sandboxes, and low-contrast UI states on mobile and desktop.",
+      "level": "error",
+      "trigger": "always_on",
+      "directives": [
+        "Eliminate desktop toolbar sprawl on mobile viewports (<768px); limit app bar to 48px fixed height.",
+        "Move secondary tools to a slide-up bottom sheet instead of crowding horizontal headers.",
+        "Never use generic AI sparkles for non-generative elements like archives, history, or databases.",
+        "Eliminate simulated chat previews from configuration dialogs; use direct segmented controls.",
+        "Enforce high-contrast semantic error tokens (red-600+ text, tinted red container) and tactile retry buttons.",
+        "Anchor primary canvas inputs above the virtual fold within the first 100dvh."
+      ],
+      "skillRef": "skills/antislop-layoutmobile/SKILL.md"
     }
   ]
 }

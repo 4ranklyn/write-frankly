@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Sparkles, LogOut, Plus, BookOpen, ClipboardCheck } from 'lucide-react';
+import { BookOpen, LogOut, Plus } from 'lucide-react';
 import Image from 'next/image';
 
 interface NavbarProps {
@@ -17,7 +17,7 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
   return (
     <header
       id="main-navbar"
-      className="h-14 border-b border-zinc-200/70 bg-white/80 backdrop-blur-xl sticky top-0 z-30 px-4 sm:px-6 flex items-center justify-between transition-all duration-200"
+      className="h-12 md:h-14 pt-[env(safe-area-inset-top)] border-b border-zinc-200/70 bg-white/80 backdrop-blur-xl sticky top-0 z-30 px-3 sm:px-6 flex items-center justify-between transition-all duration-200"
     >
       <div className="flex items-center space-x-3">
         {onToggleSidebar && (
@@ -33,7 +33,7 @@ export function Navbar({ onNewEntry, onToggleSidebar, onOpenCheckInHub }: Navbar
         )}
         <div className="flex items-center space-x-2.5">
           <div className="w-7 h-7 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-50 shadow-2xs">
-            <Sparkles className="w-3.5 h-3.5 text-zinc-100" />
+            <BookOpen className="w-3.5 h-3.5 text-zinc-100" />
           </div>
           <div className="flex items-baseline space-x-2">
             <span className="font-semibold text-zinc-900 text-sm tracking-tight">WriteFrankly</span>

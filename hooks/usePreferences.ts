@@ -15,16 +15,47 @@ import {
  * When in guest mode or unauthenticated, it strictly loads and persists
  * directly to localStorage without querying or mutating Cloud Firestore.
  */
+export type ValidTonePersona = 'warm-confidant' | 'objective-challenger' | 'socratic-inquirer';
+
+export function validateTonePersona(val: unknown): AIPersonality {
+  if (val === 'warm-confidant' || val === 'warm_confidant') return 'warm_confidant';
+  if (val === 'objective-challenger' || val === 'pragmatic_coach') return 'pragmatic_coach';
+  if (val === 'socratic-inquirer' || val === 'socratic_inquirer') return 'socratic_inquirer';
+  return 'warm_confidant';
+}
+
+function sanitizeAndFilterPreferences(raw: Partial<UserPreferences>): UserPreferences {
+  const personality = validateTonePersona(raw?.personality);
+  const customToneDirective = typeof raw?.customToneDirective === 'string'
+    ? raw.customToneDirective.trim().slice(0, 500)
+    : '';
+
+  const clean: UserPreferences = {
+    personality,
+    customToneDirective,
+  };
+
+  if (typeof raw?.emailNotifications === 'boolean') {
+    clean.emailNotifications = raw.emailNotifications;
+  }
+  if (typeof raw?.emailAddress === 'string') {
+    clean.emailAddress = raw.emailAddress.trim().slice(0, 150);
+  }
+  if (typeof raw?.reminderTime === 'string') {
+    clean.reminderTime = raw.reminderTime.trim().slice(0, 10);
+  }
+
+  // Zero-crash undefined stripping
+  return JSON.parse(JSON.stringify(clean));
+}
+
 export function usePreferences() {
   const { user } = useAuth();
   const isGuest = !user || !user.uid || user.uid.startsWith('guest_') || Boolean(user.isAnonymous);
 
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
     const initial = loadLocalPreferences(user?.uid);
-    return {
-      ...initial,
-      personality: normalizePersonality(initial.personality),
-    };
+    return sanitizeAndFilterPreferences(initial);
   });
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -37,10 +68,7 @@ export function usePreferences() {
         // Load directly from localStorage, do not query Firestore
         const local = loadLocalPreferences(user?.uid);
         if (isMounted) {
-          setPreferences({
-            ...local,
-            personality: normalizePersonality(local.personality),
-          });
+          setPreferences(sanitizeAndFilterPreferences(local));
         }
         return;
       }
@@ -49,10 +77,7 @@ export function usePreferences() {
       try {
         const remote = await loadUserPreferences(user?.uid);
         if (isMounted && remote) {
-          setPreferences({
-            ...remote,
-            personality: normalizePersonality(remote.personality),
-          });
+          setPreferences(sanitizeAndFilterPreferences(remote));
         }
       } catch (err) {
         console.warn('Preferences fetch error:', err);
@@ -72,10 +97,7 @@ export function usePreferences() {
 
   const updatePreferences = useCallback(
     async (newPrefs: UserPreferences) => {
-      const sanitizedPrefs: UserPreferences = {
-        ...newPrefs,
-        personality: normalizePersonality(newPrefs.personality),
-      };
+      const sanitizedPrefs = sanitizeAndFilterPreferences(newPrefs);
       setPreferences(sanitizedPrefs);
       if (user?.uid) {
         await saveUserPreferences(user.uid, sanitizedPrefs);
