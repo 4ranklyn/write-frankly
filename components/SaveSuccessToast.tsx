@@ -29,10 +29,10 @@ export function SaveSuccessToast({
       role="status"
       aria-live="polite"
       onClick={onClose}
-      className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-emerald-50 dark:bg-emerald-950/90 border border-emerald-500 text-emerald-900 dark:text-emerald-100 px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer animate-in fade-in slide-in-from-top-2 select-none"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 dark:bg-zinc-100/95 text-zinc-100 dark:text-zinc-900 border border-zinc-800 dark:border-zinc-200/80 px-4 py-2 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer animate-in fade-in slide-in-from-bottom-3 select-none"
     >
-      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-      <span>{message}</span>
+      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600 shrink-0" />
+      <span className="truncate max-w-[240px] sm:max-w-xs">{message}</span>
       <button
         type="button"
         id="dismiss-save-toast-btn"
@@ -41,9 +41,9 @@ export function SaveSuccessToast({
           onClose();
         }}
         aria-label="Dismiss notification"
-        className="p-1 -mr-1 rounded-full text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer"
+        className="p-0.5 -mr-1 rounded-full text-zinc-400 hover:text-zinc-200 dark:hover:text-zinc-800 transition-colors cursor-pointer"
       >
-        <X className="w-3.5 h-3.5" />
+        <X className="w-3 h-3" />
       </button>
     </div>
   );

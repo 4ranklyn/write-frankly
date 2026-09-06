@@ -414,13 +414,16 @@ export function CheckInHub({
         id="checkin-hub-modal-card"
         className="w-full max-w-xl sm:max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl p-4 sm:p-5 flex flex-col h-[85vh] max-h-[720px] min-h-[460px] text-neutral-100 overflow-hidden"
       >
+        {/* Mobile Drag Handle */}
+        <div className="w-10 h-1 rounded-full bg-neutral-700/60 mx-auto mb-2.5 shrink-0 sm:hidden" />
+
         {/* Header */}
-        <div className="flex items-start justify-between pb-3 border-b border-neutral-800 shrink-0">
+        <div className="flex items-start justify-between pb-3 shrink-0">
           <div className="flex items-start space-x-3 min-w-0 flex-1">
             <div className="w-8 h-8 rounded-xl bg-neutral-800 border border-neutral-700/80 flex items-center justify-center text-neutral-200 shrink-0 mt-0.5">
               <BookOpen className="w-4 h-4 text-neutral-300" />
             </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-baseline justify-between gap-2 pr-2">
                 <h2 className="text-sm sm:text-base font-semibold text-neutral-100 tracking-tight truncate">
                   {isGlobal ? 'Debrief & Synthesis' : 'Reflection Debrief'}
@@ -447,16 +450,6 @@ export function CheckInHub({
                     <span className="truncate max-w-[110px]">{entry?.location || recentEntriesToUse[0]?.location}</span>
                   </span>
                 )}
-                <button
-                  id="checkin-hub-persona-indicator-btn"
-                  type="button"
-                  onClick={() => setIsPersonalityModalOpen(true)}
-                  className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700/80 text-[10px] font-medium transition-colors cursor-pointer shrink-0"
-                  title="Click to customize Frankly's tone and style"
-                >
-                  <Sliders className="w-2.5 h-2.5 text-amber-400" />
-                  <span>{getPersonaLabel(userPreferences.personality)}</span>
-                </button>
               </div>
             </div>
           </div>
@@ -518,18 +511,20 @@ export function CheckInHub({
           ))}
 
           {isLoading && debriefPhase !== 'streaming' && (
-            <div className="flex items-start space-x-2 animate-in fade-in duration-150">
-              <div className="p-3.5 rounded-2xl bg-neutral-800/90 border border-neutral-700/70 text-neutral-300 rounded-tl-xs flex items-center space-x-3 shadow-xs">
-                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-xs font-medium text-neutral-200">
-                    {debriefPhase === 'reading'
-                      ? 'Frankly is reading your reflection...'
-                      : 'Synthesizing core themes...'}
-                  </span>
-                  <span className="text-[10px] text-neutral-500 animate-pulse">
-                    {debriefPhase === 'reading' ? 'Analyzing tone & context' : 'Formulating candid reflection'}
-                  </span>
+            <div className="flex items-start space-x-2 animate-in fade-in duration-200">
+              <div
+                id="debrief-loading-shimmer"
+                aria-label="AI is generating reflection debrief"
+                className="px-4 py-3 rounded-2xl bg-neutral-800/80 border border-neutral-700/60 text-neutral-300 rounded-tl-xs flex items-center space-x-3 shadow-xs"
+              >
+                <div className="relative flex items-center justify-center">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400/40 animate-ping absolute" />
+                  <span className="w-2 h-2 rounded-full bg-amber-400/90" />
+                </div>
+                <div className="flex items-center space-x-1.5 py-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400/70 animate-pulse [animation-duration:1.2s] [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400/70 animate-pulse [animation-duration:1.2s] [animation-delay:200ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400/70 animate-pulse [animation-duration:1.2s] [animation-delay:400ms]" />
                 </div>
               </div>
             </div>

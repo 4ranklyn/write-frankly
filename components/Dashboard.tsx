@@ -21,7 +21,7 @@ import {
   Sparkles, Plus, Trash2, Download, Send, Search,
   AlertCircle, RefreshCw, Copy, Check, Lightbulb, Compass,
   LogOut, PanelLeft, Sliders, MapPin, BookOpen, ClipboardCheck, CheckCircle2,
-  ArrowLeft, MoreVertical, X, Loader2,
+  ArrowLeft, MoreVertical, X, Loader2, UserMinus,
 } from 'lucide-react';
 import Image from 'next/image';
 import Markdown from 'react-markdown';
@@ -73,8 +73,25 @@ export function Dashboard({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCheckInHubOpen, setIsCheckInHubOpen] = useState(false);
   const [checkInTargetEntry, setCheckInTargetEntry] = useState<JournalEntry | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [saveStatus, setRawSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [showSavedCheckmark, setShowSavedCheckmark] = useState<boolean>(false);
+  const savedTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isGuestSheetOpen, setIsGuestSheetOpen] = useState<boolean>(false);
+  const [starterShuffleIdx, setStarterShuffleIdx] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const setSaveStatus = (status: 'saved' | 'saving' | 'error') => {
+    setRawSaveStatus(status);
+    if (status === 'saved') {
+      setShowSavedCheckmark(true);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => {
+        setShowSavedCheckmark(false);
+      }, 2000);
+    } else {
+      setShowSavedCheckmark(false);
+    }
+  };
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showGuestAccountPrompt, setShowGuestAccountPrompt] = useState(false);
@@ -650,11 +667,11 @@ export function Dashboard({
             <button
               id="sidebar-new-entry-btn"
               onClick={handleCreateNewEntry}
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-[11px] font-medium transition-all duration-200 shadow-2xs cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:bg-black text-zinc-50 text-xs font-medium transition-all duration-150 shadow-2xs hover:shadow-xs active:scale-[0.98] cursor-pointer"
               title="Create New Reflection"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ New Reflection</span>
+              <Plus className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
+              <span className="whitespace-nowrap">New Reflection</span>
             </button>
           </div>
         </div>
@@ -852,9 +869,9 @@ export function Dashboard({
             {/* Mobile Viewport Header (48px / h-12, md:hidden) */}
             <div
               id="reflection-mobile-bar"
-              className="h-12 px-3 pt-[env(safe-area-inset-top)] border-b border-zinc-200/60 bg-white/95 backdrop-blur-xl flex md:hidden items-center justify-between shrink-0 min-w-0 z-10"
+              className="h-12 px-3 pt-[env(safe-area-inset-top)] bg-white/95 backdrop-blur-xl flex md:hidden items-center justify-between shrink-0 min-w-0 z-10"
             >
-              <div className="flex items-center space-x-1.5 min-w-0 flex-1">
+              <div className="flex items-center space-x-1.5 min-w-0">
                 <button
                   id="mobile-back-to-list-btn"
                   data-alias="mobile-sidebar-toggle-btn"
@@ -871,40 +888,23 @@ export function Dashboard({
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <div className="flex items-center space-x-1.5 min-w-0 flex-1">
-                  <h2 className="font-semibold text-xs text-zinc-900 truncate">
-                    {activeEntry.title || 'Untitled Reflection'}
-                  </h2>
+                {(saveStatus === 'saving' || saveStatus === 'error' || (saveStatus === 'saved' && showSavedCheckmark)) && (
                   <span
-                    title={
-                      saveStatus === 'saved'
-                        ? 'Saved ✓'
-                        : saveStatus === 'saving'
-                        ? 'Saving...'
-                        : 'Save error'
-                    }
-                    className="inline-flex shrink-0 items-center"
+                    id="mobile-autosave-indicator"
+                    aria-label={saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving' : 'Error'}
+                    className="inline-flex shrink-0 items-center transition-opacity duration-300 animate-in fade-in ml-1"
                   >
                     {saveStatus === 'saved' && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Saved ✓
-                      </span>
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold select-none leading-none">✓</span>
                     )}
                     {saveStatus === 'saving' && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Saving...
-                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                     )}
                     {saveStatus === 'error' && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-600 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                        Error
-                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                     )}
                   </span>
-                </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-1.5 shrink-0">
@@ -917,6 +917,18 @@ export function Dashboard({
                 >
                   {getPersonaLabel(preferences.personality)}
                 </button>
+                {isGuest && (
+                  <button
+                    type="button"
+                    id="mobile-guest-mode-trigger-btn"
+                    onClick={() => setIsGuestSheetOpen(true)}
+                    aria-label="Local Mode Details"
+                    title="Local Mode (Tap for details)"
+                    className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer shrink-0"
+                  >
+                    <UserMinus className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   id="mobile-overflow-menu-btn"
                   type="button"
@@ -933,7 +945,7 @@ export function Dashboard({
             {/* Desktop & Tablet Header (hidden md:flex) */}
             <div
               id="reflection-desktop-bar"
-              className="hidden md:flex px-4 sm:px-6 py-2.5 border-b border-zinc-200/60 bg-white/80 backdrop-blur-xl flex-col gap-2 shrink-0 min-w-0"
+              className="hidden md:flex px-4 sm:px-6 py-2.5 bg-white/80 backdrop-blur-xl flex-col gap-2 shrink-0 min-w-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shrink-0 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
@@ -950,15 +962,6 @@ export function Dashboard({
                       <BookOpen className="w-4 h-4" />
                     </button>
                   )}
-                  <input
-                    id="entry-title-input"
-                    type="text"
-                    value={activeEntry.title === 'Untitled Reflection' ? '' : activeEntry.title}
-                    onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
-                    onBlur={flushPendingSync}
-                    placeholder="Untitled Reflection"
-                    className="font-semibold text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400/60 placeholder:font-normal placeholder:italic bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-hidden px-1 py-0.5 transition-colors flex-1 min-w-[100px] sm:min-w-[140px] max-w-sm sm:max-w-md truncate"
-                  />
                   <div className="flex items-center gap-1.5 shrink-0">
                     <select
                       id="entry-mood-select"
@@ -973,34 +976,48 @@ export function Dashboard({
                     </select>
                     <LocationTag value={effectiveLocation} onChange={handleLocationChange} />
                   </div>
+                  {(saveStatus === 'saving' || saveStatus === 'error' || (saveStatus === 'saved' && showSavedCheckmark)) && (
+                    <span
+                      id="desktop-autosave-indicator"
+                      aria-label={saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving' : 'Error'}
+                      className="inline-flex shrink-0 items-center transition-opacity duration-300 animate-in fade-in px-1"
+                    >
+                      {saveStatus === 'saved' && (
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold select-none leading-none" title="Saved">✓</span>
+                      )}
+                      {saveStatus === 'saving' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" title="Saving..." />
+                      )}
+                      {saveStatus === 'error' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" title="Error saving" />
+                      )}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
-                  {isGuest && (
-                    <div
-                      title="Guest Mode: Entries are not stored on our servers. Export your text before leaving."
-                      className="text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center space-x-1.5 shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200"
-                    >
-                      <AlertCircle className="w-3 h-3 shrink-0" />
-                      <span>Guest Mode (Not Saved)</span>
-                    </div>
-                  )}
-
                   <button
-                    id="toolbar-entry-debrief-btn"
-                    onClick={() => {
-                      flushPendingSync();
-                      setCheckInTargetEntry(activeEntry);
-                      setIsCheckInHubOpen(true);
-                    }}
-                    className="h-8 px-2.5 sm:px-3 rounded-lg bg-zinc-900 text-zinc-50 hover:bg-zinc-800 active:bg-zinc-950 transition-colors text-xs font-medium flex items-center gap-1.5 shrink-0 cursor-pointer shadow-2xs"
-                    title="Entry Debrief"
+                    type="button"
+                    id="desktop-header-tone-badge"
+                    onClick={() => setIsPersonalitySettingsOpen(true)}
+                    className="px-2.5 py-1 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium border border-zinc-200/80 cursor-pointer transition-colors"
+                    title={`Tone: ${getPersonaLabel(preferences.personality)}`}
                   >
-                    <ClipboardCheck className="w-3.5 h-3.5 text-zinc-300" />
-                    <span className="hidden sm:inline">Entry Debrief</span>
+                    {getPersonaLabel(preferences.personality)}
                   </button>
 
-                  <div className="h-4 w-px bg-zinc-200/80 shrink-0 hidden sm:block" />
+                  {isGuest && (
+                    <button
+                      type="button"
+                      id="guest-mode-trigger-btn"
+                      onClick={() => setIsGuestSheetOpen(true)}
+                      className="w-8 h-8 rounded-lg border border-zinc-200/80 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                      title="Local Mode (Tap for details)"
+                      aria-label="Local Mode Details"
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
+                    </button>
+                  )}
 
                   {isGuest ? (
                     <div className="flex items-center gap-1 shrink-0">
@@ -1063,41 +1080,11 @@ export function Dashboard({
                 </div>
               </div>
 
-              {/* Subtle Timestamp Indicator & Autosave Status */}
+              {/* Subtle Timestamp Indicator */}
               <div
                 id="editor-timestamp-indicator"
                 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-400 font-normal px-1"
               >
-                <span
-                  id="autosave-status-indicator"
-                  className={`inline-flex items-center space-x-1 font-medium ${
-                    saveStatus === 'saved'
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : saveStatus === 'saving'
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                  }`}
-                >
-                  {saveStatus === 'saved' && (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                      <span>Saved ✓</span>
-                    </>
-                  )}
-                  {saveStatus === 'saving' && (
-                    <>
-                      <RefreshCw className="w-3 h-3 animate-spin text-amber-600 dark:text-amber-400" />
-                      <span>Saving...</span>
-                    </>
-                  )}
-                  {saveStatus === 'error' && (
-                    <>
-                      <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                      <span>Save Error</span>
-                    </>
-                  )}
-                </span>
-                <span>•</span>
                 <span id="created-at-indicator" title={formatDateTime(activeEntry.createdAt)}>
                   Created at {formatDateTime(activeEntry.createdAt)}
                 </span>
@@ -1119,7 +1106,11 @@ export function Dashboard({
             )}
 
             {isGuest && (
-              <GuestModeBanner onSignUp={signInWithGoogle} />
+              <GuestModeBanner
+                isOpen={isGuestSheetOpen}
+                onClose={() => setIsGuestSheetOpen(false)}
+                onSignUp={signInWithGoogle}
+              />
             )}
 
             {/* Dual-Mode Body: Center Canvas + Desktop Right Rail */}
@@ -1127,34 +1118,63 @@ export function Dashboard({
               {/* Center Canvas */}
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
                 <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 pb-4 sm:pb-6 space-y-4 sm:space-y-6 bg-[#fafafa] overscroll-y-contain">
-                  {activeEntry.messages.length === 0 ? (
-                    <div className="max-w-3xl mx-auto text-center py-2 sm:py-3">
-                      <div className="w-10 h-10 rounded-2xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-center mx-auto mb-2.5">
-                        <BookOpen className="w-5 h-5 text-zinc-700" />
-                      </div>
-                      <h3 className="text-base font-semibold text-zinc-900">Say what you actually think</h3>
-                      <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto leading-relaxed">
-                        No performance, no filtering, no fear of consequence. Write what is real.
-                      </p>
+                  {/* Canvas Single Editable Title */}
+                  <div className="max-w-3xl mx-auto pt-2 pb-1">
+                    <input
+                      id="entry-title-input"
+                      type="text"
+                      value={activeEntry.title === 'Untitled Reflection' ? '' : activeEntry.title}
+                      onChange={(e) => handleUpdateMetadata({ title: e.target.value })}
+                      onBlur={flushPendingSync}
+                      placeholder="Untitled Reflection"
+                      className="w-full text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 placeholder:text-zinc-300 placeholder:font-semibold bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 transition-colors"
+                    />
+                  </div>
 
-                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-                        {getStartersForPersonality(preferences.personality).map((starter, idx) => (
-                          <button
-                            key={idx}
-                            id={`starter-prompt-btn-${idx}`}
-                            type="button"
-                            onClick={() => handleSelectStarter(starter)}
-                            title="Click to load into editor and customize before sending"
-                            className="p-3 rounded-xl bg-white border border-zinc-200/90 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs transition-all duration-150 text-left shadow-2xs flex items-start space-x-2 group cursor-pointer"
-                          >
-                            <Lightbulb className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5 group-hover:text-zinc-900 transition-colors" />
-                            <span className="leading-snug flex-1">{starter}</span>
-                            <span className="text-[10px] text-zinc-400 group-hover:text-zinc-700 shrink-0 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                              Edit
-                            </span>
-                          </button>
-                        ))}
+                  {activeEntry.messages.length === 0 ? (
+                    <div className="max-w-2xl mx-auto text-center py-6 sm:py-10 flex flex-col items-center">
+                      <div className="w-9 h-9 rounded-2xl bg-zinc-100 border border-zinc-200/80 text-zinc-700 flex items-center justify-center mb-3 shadow-2xs">
+                        <BookOpen className="w-4 h-4" />
                       </div>
+                      <h3 className="text-sm sm:text-base font-semibold text-zinc-900 tracking-tight">
+                        Say what you actually think
+                      </h3>
+
+                      {/* Collapsed starter prompts: unmounted as soon as promptInput has text */}
+                      {promptInput.trim().length === 0 && (
+                        <div className="mt-5 w-full flex flex-col sm:flex-row items-center justify-center gap-2 px-2">
+                          <button
+                            type="button"
+                            id="shuffle-prompt-btn"
+                            onClick={() => {
+                              const starters = getStartersForPersonality(preferences.personality);
+                              const nextIdx = (starterShuffleIdx + 1) % starters.length;
+                              setStarterShuffleIdx(nextIdx);
+                              handleSelectStarter(starters[nextIdx]);
+                            }}
+                            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-medium border border-zinc-200/80 transition-colors cursor-pointer shadow-2xs shrink-0"
+                            title="Shuffle and load starter prompt"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>Shuffle Prompt</span>
+                          </button>
+
+                          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1 scrollbar-none">
+                            {getStartersForPersonality(preferences.personality).map((starter, idx) => (
+                              <button
+                                key={idx}
+                                id={`starter-prompt-btn-${idx}`}
+                                type="button"
+                                onClick={() => handleSelectStarter(starter)}
+                                className="px-3 py-1 rounded-full bg-white border border-zinc-200/80 hover:border-zinc-400 text-zinc-600 hover:text-zinc-900 text-xs whitespace-nowrap transition-all shadow-2xs cursor-pointer truncate max-w-[240px] sm:max-w-[280px]"
+                                title={starter}
+                              >
+                                {starter}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="max-w-3xl mx-auto space-y-5">
@@ -1213,7 +1233,7 @@ export function Dashboard({
                 </div>
 
                 {/* Input Composer */}
-                <div className="px-4 sm:px-6 py-3 bg-white/95 backdrop-blur-xl border-t border-zinc-200/70 shrink-0">
+                <div className="px-4 sm:px-6 py-3 bg-white/95 backdrop-blur-xl shrink-0">
                   {activeEntry.isFinalized ? (
                     <div className="max-w-3xl mx-auto flex flex-col items-center justify-center py-5 px-4 space-y-3 text-center bg-emerald-50/50 dark:bg-zinc-900/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60">
                       <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-200 bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-full text-xs font-medium">
@@ -1367,15 +1387,15 @@ export function Dashboard({
                               handleSendPrompt();
                             }
                           }}
-                          placeholder="Write frankly without filtering or performance... (Enter to send, Shift+Enter for newline)"
-                          className="w-full rounded-2xl bg-zinc-100/80 focus:bg-white border border-zinc-200/80 pl-3.5 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400 transition-all resize-none leading-relaxed"
+                          placeholder="What's on your mind? Type to reflect..."
+                          className="w-full rounded-2xl bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none focus:border-none pl-2 pr-12 py-2.5 text-xs sm:text-sm text-zinc-900 placeholder:text-zinc-400 transition-all resize-none leading-relaxed"
                         />
 
                         <button
                           id="send-reflection-btn"
                           onClick={() => handleSendPrompt()}
                           disabled={!promptInput.trim() || isGenerating}
-                          aria-label="Send reflection to Gemini"
+                          aria-label="Send reflection to Frankly"
                           className="absolute right-2.5 bottom-3.5 p-1.5 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white disabled:opacity-30 disabled:hover:bg-zinc-900 transition-all duration-150 shadow-2xs cursor-pointer"
                         >
                           {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -1411,22 +1431,21 @@ export function Dashboard({
                               setCheckInTargetEntry(activeEntry);
                               setIsCheckInHubOpen(true);
                             }}
-                            className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition-colors border border-zinc-200/80 inline-flex items-center space-x-1.5 cursor-pointer"
+                            className="px-3.5 py-1.5 rounded-full bg-zinc-100/70 hover:bg-zinc-200/80 backdrop-blur-sm text-zinc-800 text-xs font-medium transition-all border border-zinc-200/60 inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
                             title="Debrief with Frankly"
                           >
-                            <Sparkles className="w-3.5 h-3.5 text-zinc-600" />
-                            <span className="hidden xs:inline">Debrief with Frankly →</span>
-                            <span className="xs:hidden">Debrief →</span>
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>Debrief</span>
                           </button>
                           <button
                             type="button"
                             id="save-and-finish-btn"
                             data-alias="end-and-save-btn"
                             onClick={handleSaveAndFinish}
-                            className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
+                            className="px-4 py-1.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
                             title="Commit reflection and finish session"
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            <Check className="w-3.5 h-3.5 shrink-0" />
                             <span>Save & Finish</span>
                           </button>
                         </div>

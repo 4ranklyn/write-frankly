@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import React from 'react';
+import { X, ShieldAlert, Sparkles } from 'lucide-react';
 import {
   isGuestBannerDismissed,
   dismissGuestBanner,
@@ -18,62 +18,80 @@ export {
 
 interface GuestModeBannerProps {
   onSignUp: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function GuestModeBanner({ onSignUp }: GuestModeBannerProps) {
-  const [isVisible, setIsVisible] = useState<boolean>(false);
-
-  useEffect(() => {
-    // Check local storage persistence on mount
-    const dismissed = isGuestBannerDismissed();
-    if (!dismissed) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsVisible(true);
-    }
-  }, []);
+export function GuestModeBanner({ onSignUp, isOpen = false, onClose }: GuestModeBannerProps) {
+  if (!isOpen) {
+    return null;
+  }
 
   const handleDismiss = () => {
     dismissGuestBanner();
-    setIsVisible(false);
+    if (onClose) onClose();
   };
-
-  if (!isVisible) {
-    return null;
-  }
 
   return (
     <div
       id="guest-mode-callout-banner"
-      role="region"
+      role="dialog"
+      aria-modal="true"
       aria-label="Guest mode notice"
-      className="h-[34px] px-3 sm:px-4 bg-zinc-100/90 dark:bg-zinc-800/60 border-b border-zinc-200/80 dark:border-zinc-700/60 text-zinc-600 dark:text-zinc-300 flex items-center justify-between text-xs transition-all duration-150 shrink-0 select-none"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+      onClick={handleDismiss}
     >
-      <div className="flex items-center space-x-2 min-w-0 truncate text-xs">
-        <span className="font-medium text-zinc-800 dark:text-zinc-200 shrink-0">
-          Guest Mode (Local Only)
-        </span>
-        <span className="text-zinc-400 dark:text-zinc-500 select-none">•</span>
-        <button
-          type="button"
-          onClick={onSignUp}
-          className="font-medium text-zinc-900 dark:text-zinc-100 underline underline-offset-2 hover:text-black dark:hover:text-white transition-colors shrink-0 whitespace-nowrap cursor-pointer"
-        >
-          Create Account →
-        </button>
-      </div>
+      <div
+        id="guest-mode-bottom-sheet"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full sm:max-w-sm bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 text-zinc-900 dark:text-zinc-100 animate-in slide-in-from-bottom-4 duration-200"
+      >
+        <div className="w-10 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full mx-auto mb-4 sm:hidden" />
+        <div className="flex items-start justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200/80 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">Local Mode</h3>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Private to this browser</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="dismiss-guest-banner-btn"
+            onClick={handleDismiss}
+            aria-label="Close guest notice"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
-      <div className="flex items-center space-x-2 shrink-0">
-        {/* Dismiss button with min 44x44px accessible touch target */}
-        <button
-          type="button"
-          id="dismiss-guest-banner-btn"
-          onClick={handleDismiss}
-          aria-label="Dismiss guest mode banner"
-          title="Dismiss banner"
-          className="relative min-w-[44px] min-h-[44px] -my-2 -mr-2 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 active:scale-95 transition-all cursor-pointer rounded-full"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-3 leading-relaxed">
+          You are in local mode. Create an account to sync your reflections across devices securely.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              handleDismiss();
+              onSignUp();
+            }}
+            className="w-full py-2.5 px-4 rounded-xl bg-zinc-900 hover:bg-black dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-medium transition-all shadow-xs flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Create an account to sync</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="w-full py-2 px-4 rounded-xl text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 text-xs font-medium transition-colors cursor-pointer"
+          >
+            Continue writing locally
+          </button>
+        </div>
       </div>
     </div>
   );
